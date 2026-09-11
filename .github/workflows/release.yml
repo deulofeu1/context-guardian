@@ -1,0 +1,59 @@
+name: Publish packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: Package set to publish
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - python
+          - npm
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    if: ${{ inputs.package == 'all' || inputs.package == 'python' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install --upgrade build
+      - run: python -m build
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  npm:
+    if: ${{ inputs.package == 'all' || inputs.package == 'npm' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          registry-url: https://registry.npmjs.org
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -e '.[dev]'
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run typecheck:dsh
+      - run: npm run test:dsh
+      - run: npm publish --workspace adapters/pi --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - run: npm publish --workspace adapters/deepseek-harness --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "integrations": [
+    {
+      "platform": "Pi",
+      "level": "native",
+      "auto_trigger": true,
+      "host_model": "Pi current model and credentials",
+      "human_review": "Pi UI confirm",
+      "native_compaction_injection": "direct customInstructions",
+      "mode": "Native Compaction Integration"
+    },
+    {
+      "platform": "Claude Code",
+      "level": "native",
+      "auto_trigger": true,
+      "host_model": "rules fallback; PreCompact command hooks do not expose current model invocation",
+      "human_review": "terminal Keep/Drop",
+      "native_compaction_injection": "checkpoint plus manual custom instructions",
+      "mode": "Native hook with persisted guidance"
+    },
+    {
+      "platform": "DeepSeek Harness",
+      "level": "native",
+      "auto_trigger": true,
+      "host_model": "Harness current ctx.llm route",
+      "human_review": "userQuestions UI",
+      "native_compaction_injection": "direct native input message",
+      "mode": "Native Compaction Integration"
+    },
+    {
+      "platform": "Codex",
+      "level": "assisted",
+      "auto_trigger": false,
+      "host_model": "not used by manual checkpoint",
+      "human_review": "terminal Keep/Drop",
+      "native_compaction_injection": "portable .agents/context-guardian.md checkpoint",
+      "mode": "Assisted Context Checkpoint"
+    }
+  ]
+}

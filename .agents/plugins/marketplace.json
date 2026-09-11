@@ -1,0 +1,20 @@
+{
+  "name": "context-guardian",
+  "interface": {
+    "displayName": "Context Guardian"
+  },
+  "plugins": [
+    {
+      "name": "context-guardian-codex",
+      "source": {
+        "source": "local",
+        "path": "./adapters/codex"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

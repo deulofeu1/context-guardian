@@ -18,7 +18,7 @@ npm install
 正式发布后，面向最终用户的目标命令是：
 
 ```bash
-pip install context-guardian
+pip install context-guardian-core
 pi install npm:@context-guardian/pi
 ```
 

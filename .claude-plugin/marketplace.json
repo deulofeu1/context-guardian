@@ -1,0 +1,22 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "context-guardian",
+  "description": "Human-in-the-loop context compaction controls for AI coding agents",
+  "owner": {
+    "name": "Context Guardian Contributors",
+    "url": "https://github.com/deulofeu1/context-guardian"
+  },
+  "plugins": [
+    {
+      "name": "context-guardian-claude",
+      "source": "./adapters/claude-code",
+      "description": "Review durable context before Claude Code compaction",
+      "version": "0.1.0",
+      "author": {
+        "name": "Context Guardian Contributors"
+      },
+      "category": "development",
+      "homepage": "https://github.com/deulofeu1/context-guardian/tree/main/adapters/claude-code"
+    }
+  ]
+}

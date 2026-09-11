@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from .models import (
     CandidateCategory,
     CompactionGuidance,
+    ContextCheckpoint,
     ConversationMessage,
     InspectionResult,
     MemoryCandidate,
@@ -232,6 +233,19 @@ class ContextGuardian:
 
         resolved = self.apply_decisions(candidates, decisions, unresolved_action=unresolved_action)
         return build_guidance(resolved)
+
+    def build_checkpoint(
+        self,
+        candidates: Iterable[MemoryCandidate],
+        decisions: Iterable[ReviewDecision | dict] = (),
+        *,
+        unresolved_action: ReviewAction = ReviewAction.KEEP,
+    ) -> ContextCheckpoint:
+        """Build a durable checkpoint from the same reviewed candidates as guidance."""
+        from .checkpoint import build_checkpoint
+
+        resolved = self.apply_decisions(candidates, decisions, unresolved_action=unresolved_action)
+        return build_checkpoint(resolved, unresolved_action=unresolved_action)
 
     @staticmethod
     def _build_inspection_prompt(messages: list[ConversationMessage]) -> str:

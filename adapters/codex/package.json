@@ -1,0 +1,10 @@
+{
+  "name": "context-guardian-codex",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Assisted context checkpoints for Codex",
+  "type": "module",
+  "scripts": {
+    "fixture-smoke": "node scripts/interactive-fixture-smoke.mjs"
+  }
+}

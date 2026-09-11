@@ -34,8 +34,8 @@ Agent 经常会在压缩时丢掉“为什么某条路径被放弃”。之后�
 克隆或下载仓库 → 安装 Python 和 JavaScript 依赖 → 从仓库运行适配器。
 
 发布后的无源码安装方式如下。这是目标中的最终用户体验，目前还不能作为安装
-测试使用。宿主 CLI 仍然需要单独安装。另请注意，PyPI 上的 `context-guardian`
-名称目前已被无关项目占用，发布前必须解决这个包名问题。
+测试使用。宿主 CLI 仍然需要单独安装。Python distribution 使用
+`context-guardian-core`，安装后的 CLI 仍然叫 `context-guardian`。
 
 ## 现在从源码使用
 
@@ -101,24 +101,57 @@ fixture 会预置一段足够长的会话，打开 Harness Web UI，在 SQLite �
 API Key。详细步骤见
 [`adapters/deepseek-harness/README.md`](adapters/deepseek-harness/README.md)。
 
+### Claude Code 与 Codex
+
+发布仓库后，这两个 adapter 可以通过 marketplace 安装，不需要用户 clone 仓库：
+
+```bash
+claude plugin marketplace add deulofeu1/context-guardian
+claude plugin install context-guardian-claude@context-guardian
+
+codex plugin marketplace add deulofeu1/context-guardian
+codex plugin add context-guardian-codex@context-guardian
+```
+
+Claude Code 安装的是 `PreCompact` 插件；Codex 安装的是手动 checkpoint skill。
+Codex 当前没有本适配器可使用的官方 pre-compaction hook，因此它保持 Assisted
+集成级别。
+
 ## 发布后的无源码安装（目标）
 
 ```bash
-python -m pip install context-guardian
+python -m pip install context-guardian-core
 pi install npm:@context-guardian/pi
 dsh plugin --profile web add context-guardian-deepseek-harness
 ```
 
 这些命令要等包正式发布且 Python 包名问题解决后才会生效。
+Claude Code 与 Codex 使用上面的 marketplace 命令，不需要单独安装 npm 包。
 
 ## 工作模式
 
 - 规则模式：本地、确定性、保守，是 CLI 默认模式。
 - Pi 模式：让 Pi 当前模型输出结构化候选，再调用 Pi 原生 compaction。
-- OpenAI 模式：独立 CLI 的可选 Provider，需要显式安装 `.[openai]` 并配置 Key。
+- OpenAI 模式：独立 CLI 的可选 Provider，发布后安装 `context-guardian-core[openai]` 并配置 Key。
 
 如果桥接、模型调用或审查 UI 失败，适配器会 fail-open，继续宿主的原生
 compaction。
+
+## 集成能力矩阵
+
+| 平台 | 级别 | 自动触发 | 宿主模型 | 人工审查 | 保留方式 |
+| --- | --- | --- | --- | --- | --- |
+| Pi | Native | 是 | Pi 当前模型 | Pi UI | 直接传入 native `customInstructions` |
+| Claude Code | Native hook | 是 | 规则模式降级 | 终端 Keep/Drop | 写 checkpoint 后手动带指令重跑 `/compact` |
+| DeepSeek Harness | Native | 是 | Harness 当前 `ctx.llm` 路由 | `userQuestions` UI | 直接追加 native 输入消息 |
+| Codex | Assisted | 否 | 手动 checkpoint 不调用 | 终端 Keep/Drop | `.agents/context-guardian.md` |
+
+Claude Code 当前的 `PreCompact` command hook 可以阻止手动 compaction，但没有
+把 Guidance 注入同一次 compaction 请求的通道。因此适配器会持久化人工确认后的
+状态，并要求用户带 checkpoint 路径重新执行 `/compact`。在官方 pre-compaction
+接口出现前，Codex 保持手动 checkpoint 模式。详见
+[`docs/adapter-contract.md`](docs/adapter-contract.md) 和
+[`adapters/capabilities.json`](adapters/capabilities.json)。
 
 ## 开发与验证
 
@@ -132,6 +165,8 @@ npm run test:dsh
 npm run pi-smoke
 npm run pi-fixture-smoke
 npm run dsh-fixture-smoke
+npm run claude-fixture-smoke
+npm run codex-fixture-smoke
 ```
 
 其中 `pi-smoke` 是适合 CI 的快速无模型检查；`pi-fixture-smoke` 和

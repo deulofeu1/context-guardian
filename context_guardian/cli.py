@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -40,10 +41,28 @@ def _print_result(result) -> None:
 
 def _interactive_decisions(result) -> list[ReviewDecision]:
     decisions: list[ReviewDecision] = []
-    for candidate in result.review:
-        answer = input(f"\nKeep this candidate? [Y/n] {candidate.content}\n> ").strip().lower()
-        action = "drop" if answer in {"n", "no", "d", "drop"} else "keep"
-        decisions.append(ReviewDecision(candidate_id=candidate.id, action=action))
+    try:
+        tty = open("/dev/tty", "r+", encoding="utf-8", buffering=1)
+    except OSError:
+        tty = None
+
+    if tty is None:
+        for candidate in result.review:
+            try:
+                answer = input(f"\nKeep this candidate? [Y/n] {candidate.content}\n> ").strip().lower()
+            except EOFError:
+                answer = ""
+            action = "drop" if answer in {"n", "no", "d", "drop"} else "keep"
+            decisions.append(ReviewDecision(candidate_id=candidate.id, action=action))
+        return decisions
+
+    with tty:
+        tty.write(f"\nContext Guardian: {len(result.review)} candidate(s) need review.\n")
+        for candidate in result.review:
+            tty.write(f"\n{candidate.content}\nKeep this candidate? [Y/n] ")
+            answer = tty.readline().strip().lower()
+            action = "drop" if answer in {"n", "no", "d", "drop"} else "keep"
+            decisions.append(ReviewDecision(candidate_id=candidate.id, action=action))
     return decisions
 
 
@@ -68,6 +87,25 @@ def build_parser() -> argparse.ArgumentParser:
     verify = subparsers.add_parser("verify", help="run the deterministic no-key release fixture")
     verify.add_argument("conversation", type=Path, help="JSON fixture to verify")
     verify.add_argument("--json", action="store_true", dest="as_json")
+
+    checkpoint = subparsers.add_parser(
+        "checkpoint", help="review a conversation and write a portable context checkpoint"
+    )
+    checkpoint.add_argument("conversation", type=Path, nargs="?", help="JSON file; omit for stdin")
+    checkpoint.add_argument(
+        "--output",
+        type=Path,
+        default=Path(".agents/context-guardian.md"),
+        help="Markdown checkpoint path (default: .agents/context-guardian.md)",
+    )
+    checkpoint.add_argument("--provider", choices=["rules", "openai"], default="rules")
+    checkpoint.add_argument(
+        "--review-mode",
+        choices=["interactive", "keep", "drop"],
+        default=os.getenv("CONTEXT_GUARDIAN_REVIEW_MODE", "interactive"),
+        help="review uncertain candidates interactively or resolve them deterministically",
+    )
+    checkpoint.add_argument("--json", action="store_true", dest="as_json")
     return parser
 
 
@@ -88,6 +126,44 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"  {'PASS' if passed else 'FAIL'} {name}")
                 print(json.dumps(verification["metrics"], ensure_ascii=False, indent=2))
             return 0 if verification["passed"] else 1
+
+        if args.command == "checkpoint":
+            if args.conversation:
+                messages = _load_messages(args.conversation)
+            else:
+                data = json.load(sys.stdin)
+                items = data.get("messages", []) if isinstance(data, dict) else data
+                if not isinstance(items, list):
+                    raise ValueError('stdin must contain a JSON array or {"messages": [...]}')
+                messages = [ConversationMessage.model_validate(item) for item in items]
+
+            guardian = ContextGuardian(provider=provider_from_name(args.provider))
+            result = guardian.inspect_with_fallback(messages)
+            if args.review_mode == "interactive":
+                decisions = _interactive_decisions(result)
+            else:
+                action = "keep" if args.review_mode == "keep" else "drop"
+                decisions = [ReviewDecision(candidate_id=item.id, action=action) for item in result.review]
+            checkpoint = guardian.build_checkpoint(result.candidates, decisions)
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(checkpoint.text + "\n", encoding="utf-8")
+            if args.as_json:
+                print(
+                    json.dumps(
+                        {
+                            "inspection": result.model_dump(mode="json"),
+                            "decisions": [item.model_dump(mode="json") for item in decisions],
+                            "checkpoint": checkpoint.model_dump(mode="json"),
+                            "output": str(args.output),
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                )
+            else:
+                print(f"Context Guardian checkpoint written to {args.output}")
+                print(f"Reviewed {len(decisions)} uncertain candidate(s).")
+            return 0
 
         if args.conversation:
             messages = _load_messages(args.conversation)

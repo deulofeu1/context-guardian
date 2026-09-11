@@ -3,7 +3,7 @@ requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"
 
 [project]
-name = "context-guardian"
+name = "context-guardian-core"
 version = "0.1.0"
 description = "A human-in-the-loop control layer for AI agent context compaction."
 readme = "README.md"

@@ -40,7 +40,9 @@ def verify_conversation(messages: Iterable[ConversationMessage | dict[str, Any]]
     dropped_text = " ".join(candidate.content for candidate in result.auto_drop).casefold()
     decisions = [ReviewDecision(candidate_id=candidate.id, action="keep") for candidate in result.review]
     guidance = guardian.build_guidance(result.candidates, decisions)
+    checkpoint = guardian.build_checkpoint(result.candidates, decisions)
     guidance_text = guidance.text.casefold()
+    checkpoint_text = checkpoint.text.casefold()
 
     memory_hits = [needle for needle in EXPECTED_MEMORY if needle.casefold() in retained_text]
     noise_hits = [needle for needle in EXPECTED_NOISE if needle.casefold() in dropped_text]
@@ -54,6 +56,10 @@ def verify_conversation(messages: Iterable[ConversationMessage | dict[str, Any]]
         ),
         "guidance_contains_memory": all(needle.casefold() in guidance_text for needle in EXPECTED_MEMORY),
         "guidance_contains_noise": all(needle.casefold() in guidance_text for needle in EXPECTED_NOISE),
+        "checkpoint_contains_memory": all(needle.casefold() in checkpoint_text for needle in EXPECTED_MEMORY),
+        "checkpoint_excludes_noise": all(
+            needle.casefold() not in checkpoint_text for needle in EXPECTED_NOISE
+        ),
     }
     metrics = {
         "candidates": len(result.candidates),
@@ -61,6 +67,10 @@ def verify_conversation(messages: Iterable[ConversationMessage | dict[str, Any]]
         "critical_memory_retention": len(memory_hits) / len(EXPECTED_MEMORY),
         "noise_removal": len(noise_hits) / len(EXPECTED_NOISE),
         "human_review_cost": len(result.review) / max(len(result.candidates), 1),
+        "checkpoint_memory_retention": sum(
+            needle.casefold() in checkpoint_text for needle in EXPECTED_MEMORY
+        )
+        / len(EXPECTED_MEMORY),
     }
     return {"passed": all(checks.values()), "checks": checks, "metrics": metrics}
 

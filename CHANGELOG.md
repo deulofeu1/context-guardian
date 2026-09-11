@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added portable `build_checkpoint()` output for assisted integrations.
+- Added Claude Code `PreCompact` adapter with persisted checkpoints and fail-open
+  behavior.
+- Added Codex manual checkpoint skill and pre-seeded interactive Keep/Drop fixture.
+- Added a shared adapter contract, capability matrix, Claude marketplace entry, and
+  Codex marketplace entry.
 - Added a DeepSeek Harness adapter that decorates native compaction with Context
   Guardian inspection, human review, host-model reuse, and fail-open fallback.
 - Added a pre-seeded interactive DeepSeek Harness fixture smoke for manual Keep/Drop
