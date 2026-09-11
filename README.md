@@ -2,6 +2,8 @@
 
 > Never let your coding agent forget the wrong thing.
 
+[English](README.md) · [简体中文](README.zh-CN.md)
+
 Context Guardian adds a human review layer before an AI agent compacts its context.
 It does not replace the agent's memory system, summarizer, token manager, or native
 compaction engine. It makes the hidden keep/drop decision inspectable.
@@ -29,10 +31,36 @@ agent summarizes the context.
 
 ## Quick start
 
-From a checkout, install the Python core without an API key:
+### Installation status
+
+This repository is source-installable today, but the Python and npm packages have
+not been published yet. That means the current path is clone/download → install
+the Python and JavaScript dependencies → run the adapter from the checkout.
+
+The no-checkout installation shown below is the target end-user experience after
+release. The host CLIs remain separate prerequisites. The `context-guardian` name
+also needs to be resolved on PyPI before it can be used safely, because that
+distribution name is currently occupied by an unrelated package.
+
+### Use this repository today
 
 ```bash
-python -m pip install -e /absolute/path/to/ContextGuardian
+git clone https://github.com/deulofeu1/context-guardian.git
+cd context-guardian
+
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -e '.[dev]'
+npm install
+```
+
+The workspace install does not install the host CLI itself. The Pi workflow expects
+Pi `0.82.1` and Node.js `22.19.0+`; the DeepSeek Harness workflow expects the
+DeepSeek Harness `0.1.5-rc.x` API family and the same Node.js runtime.
+
+Now run the local Python CLI without an API key:
+
+```bash
 context-guardian inspect examples/conversation.json
 context-guardian inspect examples/conversation.json --json
 context-guardian review examples/conversation.json
@@ -43,15 +71,35 @@ context-guardian verify examples/conversation.json
 checks critical-memory retention, noise removal, stable candidate IDs, and rendered
 guidance. It is a fast core check, not a replacement for the interactive Pi test.
 
-For the Pi adapter:
+For the source Pi workflow, use the interactive fixture from the checkout:
 
 ```bash
-python -m pip install -e /absolute/path/to/ContextGuardian
-pi install npm:@context-guardian/pi
+npm run pi-fixture-smoke
 ```
 
-The npm command is for the published package; during local development use the
-checkout's `adapters/pi` package as documented below.
+It opens Pi with a pre-seeded long conversation and lets you manually choose
+Keep/Drop. To load the source extension in an existing Pi session, see
+[`adapters/pi/README.md`](adapters/pi/README.md).
+
+For DeepSeek Harness, install the local adapter into the Web profile:
+
+```bash
+dsh plugin --profile web add "$PWD/adapters/deepseek-harness"
+```
+
+### Install published packages after release
+
+These are the intended commands for end users once the package names are published
+and the Python distribution name is resolved:
+
+```bash
+python -m pip install context-guardian
+pi install npm:@context-guardian/pi
+dsh plugin --profile web add context-guardian-deepseek-harness
+```
+
+Until then, do not use these commands as an installation test; use the source
+workflow above.
 
 Inside Pi, the adapter reuses the current host model and its existing credentials.
 No second API key is required. The Python process never receives those credentials.
@@ -117,7 +165,7 @@ npm install
 npm run typecheck
 npm run typecheck:dsh
 npm run test:dsh
-npm run smoke
+npm run pi-smoke
 npm run pi-fixture-smoke
 npm run dsh-fixture-smoke
 ```

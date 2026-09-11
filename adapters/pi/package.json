@@ -15,7 +15,8 @@
     "extensions",
     "src",
     "tsconfig.json",
-    "README.md"
+    "README.md",
+    "README.zh-CN.md"
   ],
   "pi": {
     "extensions": ["./extensions"]

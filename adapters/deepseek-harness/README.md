@@ -1,5 +1,7 @@
 # Context Guardian for DeepSeek Harness
 
+[English](README.md) · [简体中文](README.zh-CN.md)
+
 This adapter adds a human review step before DeepSeek Harness's native context compaction:
 
 ```text
@@ -12,12 +14,20 @@ It is a decorator over `dsh-compaction-basic`. DeepSeek Harness continues to own
 
 DeepSeek Harness is currently a developer preview, so this adapter is pinned to the `0.1.5-rc.x` API family.
 
+The package is not published yet. Install the current checkout into the Web profile:
+
 ```bash
 dsh plugin --profile web add /absolute/path/to/ContextGuardian/adapters/deepseek-harness
 ```
 
 This checkout command installs the local adapter tarball into the profile. After npm
 publishing, the argument can be replaced with `context-guardian-deepseek-harness`.
+
+After publishing, the intended end-user command is:
+
+```bash
+dsh plugin --profile web add context-guardian-deepseek-harness
+```
 
 Because DeepSeek Harness Web composes compaction inside the selected agent preset,
 installing the package alone does not replace the `standard` preset's nested native

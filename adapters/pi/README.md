@@ -1,11 +1,29 @@
 # `@context-guardian/pi`
 
-Pi adapter for Context Guardian. Install the Python core first:
+[English](README.md) · [简体中文](README.zh-CN.md)
+
+Pi adapter for Context Guardian.
+
+## Installation
+
+The packages are not published yet. To use the current checkout, install the Python
+core and JavaScript dependencies from the repository root:
+
+```bash
+python -m pip install -e /absolute/path/to/ContextGuardian
+cd /absolute/path/to/ContextGuardian
+npm install
+```
+
+For the end-user release, the intended commands will be:
 
 ```bash
 pip install context-guardian
 pi install npm:@context-guardian/pi
 ```
+
+Until the release is published, load the source extension directly or use the
+repository's `npm run pi-fixture-smoke` workflow.
 
 The adapter reuses Pi's current model and credentials. It does not persist or forward
 provider credentials to the Python process. If the bridge or review flow fails, Pi's
