@@ -1,0 +1,12 @@
+{
+  "messages": [
+    {"id": "u1", "role": "user", "content": "The goal is to implement OAuth without modifying the public API."},
+    {"id": "a1", "role": "assistant", "content": "I first tried SQLite for the auth state."},
+    {"id": "t1", "role": "tool", "tool_name": "bash", "content": "SQLite caused concurrency issues under parallel requests.", "is_error": true},
+    {"id": "u2", "role": "user", "content": "Let's stop using SQLite. Use PostgreSQL instead."},
+    {"id": "a2", "role": "assistant", "content": "PostgreSQL is now the selected database. auth.py is still incomplete."},
+    {"id": "t2", "role": "tool", "tool_name": "grep", "content": "grep -R OAuth .\n./auth.py: TODO"},
+    {"id": "t3", "role": "tool", "tool_name": "npm", "content": "npm install completed successfully."},
+    {"id": "a3", "role": "assistant", "content": "A temporary syntax error was fixed."}
+  ]
+}

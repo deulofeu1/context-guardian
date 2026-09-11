@@ -1,0 +1,10 @@
+{
+  "name": "context-guardian-workspace",
+  "private": true,
+  "workspaces": ["adapters/pi"],
+  "scripts": {
+    "typecheck": "npm --workspace adapters/pi run typecheck",
+    "pi-smoke": "npm --workspace adapters/pi run smoke",
+    "pi-fixture-smoke": "npm --workspace adapters/pi run fixture-smoke"
+  }
+}
