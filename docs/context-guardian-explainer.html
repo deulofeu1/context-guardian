@@ -135,6 +135,7 @@
   <nav>
     <div class="shell">
       <a href="#one-minute">一分钟理解</a>
+      <a href="#walkthrough">完整例子</a>
       <a href="#architecture">架构</a>
       <a href="#core">Python Core</a>
       <a href="#bridge">JSONL Bridge</a>
@@ -163,6 +164,114 @@
           <div class="metric"><strong>复用</strong><span>适配器复用宿主模型、认证、UI、持久化</span></div>
           <div class="metric"><strong>可降级</strong><span>Guardian 出错时继续宿主原生压缩</span></div>
         </div>
+      </div>
+    </section>
+
+    <section id="walkthrough">
+      <div class="card">
+        <h2>先别被类型名吓到：它们其实是在传递不同形态的同一件事</h2>
+        <p>下面先把几个名字翻译成人话。你可以把整个系统想成一个“整理会议记录的人”：先把原始对话抄清楚，再圈出可能重要的句子，决定哪些直接留下，哪些直接删掉，哪些需要问项目负责人，最后给摘要器一份整理说明。</p>
+        <table>
+          <thead><tr><th>代码里的名字</th><th>人话</th><th>它解决什么问题</th><th>一个直观例子</th></tr></thead>
+          <tbody>
+            <tr><td><code>ConversationMessage</code></td><td>一条“整理过格式”的对话记录</td><td>Pi、Harness 的原始消息长得不一样，Core 先把它们翻译成同一种格式</td><td>角色是 user，内容是“不能修改 public API”，并带有来源 ID</td></tr>
+            <tr><td><code>MemoryCandidate</code></td><td>从对话里圈出来的一条“可能值得记住的事实”</td><td>把整段长对话拆成一条条可以单独判断的记忆</td><td>“SQLite 因并发问题被放弃”</td></tr>
+            <tr><td><code>InspectionResult</code></td><td>这次检查的总成绩单</td><td>不仅列出所有候选，还告诉宿主：哪些自动 Keep、哪些自动 Drop、哪些要问人</td><td>PostgreSQL → auto Keep；grep 输出 → auto Drop；SQLite → Review</td></tr>
+            <tr><td><code>ReviewDecision</code></td><td>人对某一条候选做出的选择</td><td>把 UI 上的“Keep / Drop”准确对应回某个候选，而不是靠数组顺序猜</td><td><code>{candidate_id: "sqlite-1", action: "keep"}</code></td></tr>
+            <tr><td><code>CompactionGuidance</code></td><td>给最终摘要器的“整理要求”</td><td>告诉原生摘要器哪些内容不能忘、哪些可以忽略、哪些还没有完全确定</td><td>Must preserve：PostgreSQL；Can discard：grep；Unresolved：SQLite 原因</td></tr>
+          </tbody>
+        </table>
+        <div class="callout green"><strong>最重要的区别：</strong>候选记忆不是最终摘要。候选是“要不要记住的一条条事实”；Guidance 是“把这些判断告诉原生摘要器的说明”；最终摘要仍由 Pi 或 DeepSeek Harness 生成。</div>
+
+        <h2 style="margin-top:32px">完整例子：一条“SQLite 被放弃”的信息到底去了哪里？</h2>
+        <p>假设用户和 Agent 之前有下面几条对话。真实项目会有很多消息，这里只截取最能说明问题的 5 条：</p>
+        <pre><code><span class="cm"># 宿主 Agent 的原始上下文</span>
+[user] 目标：实现 OAuth，但不能修改 public API。
+[user] 约束：必须保持现有 API 兼容。
+[assistant] 我们最终选择 PostgreSQL。
+[user] SQLite 因为并发写入锁问题被放弃；不要再次尝试这条路线。
+[user] TODO：auth.py 还没有完成 OAuth callback。
+[tool] grep -R OAuth src/  →  一些临时搜索输出
+</code></pre>
+
+        <h3>第 1 步：宿主准备压缩</h3>
+        <p>上下文变长后，Pi 或 Harness 决定执行 compaction。宿主把“准备被压缩的旧消息”交给适配器。此时还没有删除消息，只是进入审查阶段。</p>
+        <div class="flow"><div class="node green">Pi: session_before_compact</div><div class="arrow">或</div><div class="node green">Harness: summarize(input)</div><div class="arrow">→</div><div class="node">Adapter 拿到待压缩消息</div></div>
+
+        <h3>第 2 步：Adapter 把消息翻译成 Core 看得懂的格式</h3>
+        <p>Pi 里的角色可能叫 <code>toolResult</code>，Harness 里的工具消息还包含 block。Adapter 只做“格式翻译”，不在这里决定记不记。</p>
+        <pre><code><span class="cm"># 归一化后的 ConversationMessage（示意）</span>
+[
+  {<span class="str">"role"</span>: <span class="str">"user"</span>, <span class="str">"content"</span>: <span class="str">"目标：实现 OAuth，但不能修改 public API。"</span>, <span class="str">"id"</span>: <span class="str">"msg-001"</span>},
+  {<span class="str">"role"</span>: <span class="str">"user"</span>, <span class="str">"content"</span>: <span class="str">"约束：必须保持现有 API 兼容。"</span>, <span class="str">"id"</span>: <span class="str">"msg-002"</span>},
+  {<span class="str">"role"</span>: <span class="str">"assistant"</span>, <span class="str">"content"</span>: <span class="str">"我们最终选择 PostgreSQL。"</span>, <span class="str">"id"</span>: <span class="str">"msg-003"</span>},
+  {<span class="str">"role"</span>: <span class="str">"user"</span>, <span class="str">"content"</span>: <span class="str">"SQLite 因并发写入锁问题被放弃。"</span>, <span class="str">"id"</span>: <span class="str">"msg-004"</span>},
+  {<span class="str">"role"</span>: <span class="str">"tool"</span>, <span class="str">"content"</span>: <span class="str">"grep -R OAuth src/"</span>, <span class="str">"id"</span>: <span class="str">"msg-006"</span>}
+]
+</code></pre>
+        <p class="small">这就是 <code>ConversationMessage</code> 的作用：它不是新消息，也不是摘要，只是给不同宿主消息套上同一件“外套”。</p>
+
+        <h3>第 3 步：Python Core 把长对话拆成候选记忆</h3>
+        <p>Inspector 会逐条读取内容，必要时按句子拆开，并给每条候选加上类别、重要性、置信度和来源。规则模式尽量保留原文，不凭空创造用户没有说过的结论。</p>
+        <table>
+          <thead><tr><th>候选内容</th><th>类别</th><th>重要性 / 置信度</th><th>来源</th></tr></thead>
+          <tbody>
+            <tr><td>目标是实现 OAuth，不能修改 public API</td><td>goal / constraint</td><td>高 / 高</td><td>msg-001</td></tr>
+            <tr><td>必须保持现有 API 兼容</td><td>constraint</td><td>高 / 高</td><td>msg-002</td></tr>
+            <tr><td>PostgreSQL 是最终选择</td><td>decision</td><td>高 / 高</td><td>msg-003</td></tr>
+            <tr><td>SQLite 因并发写入锁问题被放弃</td><td>failed_attempt</td><td>中 / 中</td><td>msg-004</td></tr>
+            <tr><td>auth.py 的 OAuth callback 还未完成</td><td>todo</td><td>高 / 高</td><td>msg-005</td></tr>
+            <tr><td>grep 的临时搜索输出</td><td>tool_output</td><td>低 / 高</td><td>msg-006</td></tr>
+          </tbody>
+        </table>
+        <p class="small">这些一条条的候选就是 <code>MemoryCandidate</code>。它存在的意义是：系统可以逐条讨论，而不是对整段对话做一个无法解释的“保留/删除”决定。</p>
+
+        <h3>第 4 步：Policy 先自动处理确定的，再把边界情况交给人</h3>
+        <p>Policy 看两件事：这条信息有多重要，以及判断有多确定。类别还会提供方向：目标、约束、决定、TODO、失败尝试偏向保留；工具日志和临时输出偏向丢弃。</p>
+        <table>
+          <thead><tr><th>候选</th><th>Policy 结果</th><th>为什么</th></tr></thead>
+          <tbody>
+            <tr><td>OAuth 目标、API 约束、PostgreSQL 决定、auth.py TODO</td><td><span class="status ok">auto Keep</span></td><td>重要性和置信度都高，且属于关键类别</td></tr>
+            <tr><td>grep 临时输出</td><td><span class="status warn">auto Drop</span></td><td>工具输出，重要性低且判断很确定</td></tr>
+            <tr><td>SQLite 失败原因</td><td><span class="status manual">Review</span></td><td>它很可能重要，但当前策略不让系统擅自替用户决定</td></tr>
+          </tbody>
+        </table>
+        <p>在这个例子里，UI 只需要让用户回答 SQLite 这一条：</p>
+        <pre><code><span class="cm"># ReviewDecision：用户在宿主 UI 中点击 Keep</span>
+{ <span class="str">"candidate_id"</span>: <span class="str">"candidate-sqlite"</span>, <span class="str">"action"</span>: <span class="str">"keep"</span> }
+</code></pre>
+
+        <h3>第 5 步：Python Core 生成 Guidance</h3>
+        <p>Core 把自动结果和人工结果合并，生成三段很明确的“给摘要器的要求”：</p>
+        <pre><code>Must preserve:
+- 目标是实现 OAuth，不能修改 public API。
+- 必须保持现有 API 兼容。
+- PostgreSQL 是最终数据库选择。
+- auth.py 的 OAuth callback 还未完成。
+- SQLite 因并发写入锁问题被放弃。
+
+Can discard:
+- grep 的临时搜索输出。
+
+Unresolved / review carefully:
+- (none)
+</code></pre>
+        <p>这里的 <code>CompactionGuidance</code> 可以理解成“摘要器的检查清单”。它不是最终摘要，也没有替宿主决定最终段落怎么写。</p>
+
+        <h3>第 6 步：Bridge 把结果送回宿主，宿主继续原生压缩</h3>
+        <p>如果使用 Provider 模式，Python 发现自己需要模型帮助时，会通过 JSONL 发出 <code>provider_request</code>；宿主用当前模型返回结构化结果。最终 Python 返回 <code>InspectionResult</code> 或 <code>Guidance</code>，Adapter 把 Guidance 加到原生摘要请求的额外指令里。</p>
+        <div class="flow"><div class="node">Python Guidance</div><div class="arrow">→</div><div class="node">Adapter 加入 custom instructions</div><div class="arrow">→</div><div class="node green">Pi compact / Harness super.summarize</div><div class="arrow">→</div><div class="node green">宿主最终摘要</div></div>
+        <pre><code><span class="cm"># 最终结果由宿主自己的 summarizer 写成，例如：</span>
+## Project intent
+Implement OAuth without changing the public API.
+
+## Decisions and constraints
+PostgreSQL is final. SQLite was rejected because concurrent writes caused locking problems.
+
+## Pending work
+Finish the OAuth callback in auth.py.
+</code></pre>
+        <div class="callout"><strong>完整信息流总结：</strong>原始消息 → 统一消息格式 → 一条条候选记忆 → 自动 Keep/Drop + 人工 Review → 三段 Guidance → 宿主原生摘要。Context Guardian 主要改变的是“摘要前的取舍决策”，不是宿主最终摘要的格式。</div>
       </div>
     </section>
 
@@ -211,10 +320,10 @@ guidance = guardian.build_guidance(result.candidates, decisions)
 
         <h3>2.1 数据模型</h3>
         <div class="grid two">
-          <div class="metric"><strong>ConversationMessage</strong><span>适配器归一化后的最小消息：role、content、id、tool、error。</span></div>
-          <div class="metric"><strong>MemoryCandidate</strong><span>原子候选：内容、类别、importance、confidence、来源消息和建议动作。</span></div>
-          <div class="metric"><strong>InspectionResult</strong><span>完整 candidates，以及已经分组的 auto_keep、auto_drop、review。</span></div>
-          <div class="metric"><strong>CompactionGuidance</strong><span>Must preserve、Can discard、Unresolved 三段文字，传给宿主摘要器。</span></div>
+          <div class="metric"><strong>ConversationMessage</strong><span>把 Pi/Harness 的一条原始消息翻译成统一格式，方便 Core 读取；它只是“统一格式”，还没有做保留决定。</span></div>
+          <div class="metric"><strong>MemoryCandidate</strong><span>从长对话中圈出的“一条可能重要的事实”，例如“SQLite 因并发问题被放弃”。每条都能单独判断。</span></div>
+          <div class="metric"><strong>InspectionResult</strong><span>本轮检查的结果清单：全部候选放在一起，并分成自动保留、自动丢弃、需要人工确认三组。</span></div>
+          <div class="metric"><strong>CompactionGuidance</strong><span>给原生摘要器的待办清单：必须保留什么、可以忽略什么、哪些仍然不确定。</span></div>
         </div>
         <div class="callout">为什么要有 candidate id？因为 Review 发生在异步边界甚至跨进程边界，不能靠数组下标关联回答。规则模式用 <code>source_message_id + category + content</code> 做 SHA-1 截断值，输入不变时 ID 稳定。</div>
 
