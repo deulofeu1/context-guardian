@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Context Guardian · 实现与技术路线</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --paper: #fff;
+      --ink: #182230;
+      --muted: #5d6a7a;
+      --line: #dce3ee;
+      --blue: #356ae6;
+      --blue-soft: #eaf0ff;
+      --green: #16845b;
+      --green-soft: #e9f8f0;
+      --orange: #b86b00;
+      --orange-soft: #fff4df;
+      --red: #bd3d4d;
+      --red-soft: #fff0f2;
+      --shadow: 0 14px 38px rgba(27, 44, 75, .08);
+      --radius: 16px;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      line-height: 1.72;
+    }
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .shell { width: min(1160px, calc(100% - 36px)); margin: 0 auto; }
+    .hero {
+      padding: 64px 0 48px;
+      background:
+        radial-gradient(circle at 12% 4%, rgba(53,106,230,.18), transparent 32%),
+        radial-gradient(circle at 88% 12%, rgba(22,132,91,.12), transparent 28%),
+        linear-gradient(135deg, #eef3ff 0%, #f8fbff 52%, #eefaf5 100%);
+      border-bottom: 1px solid var(--line);
+    }
+    .eyebrow { color: var(--blue); font-weight: 750; letter-spacing: .08em; text-transform: uppercase; font-size: 13px; }
+    h1 { max-width: 850px; margin: 12px 0 16px; font-size: clamp(34px, 5vw, 62px); line-height: 1.12; letter-spacing: -.04em; }
+    .lead { max-width: 820px; color: #425064; font-size: clamp(18px, 2vw, 23px); margin: 0; }
+    .hero-tags { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 28px; }
+    .tag { border: 1px solid rgba(53,106,230,.2); background: rgba(255,255,255,.72); padding: 6px 11px; border-radius: 999px; color: #304a84; font-size: 13px; }
+    nav {
+      position: sticky; top: 0; z-index: 5; border-bottom: 1px solid var(--line);
+      background: rgba(255,255,255,.9); backdrop-filter: blur(14px);
+    }
+    nav .shell { display: flex; gap: 18px; overflow-x: auto; padding: 12px 0; white-space: nowrap; }
+    nav a { color: var(--muted); font-size: 14px; }
+    main { padding: 34px 0 70px; }
+    section { scroll-margin-top: 70px; margin: 30px 0; }
+    .card { background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: clamp(20px, 3vw, 34px); }
+    .grid { display: grid; gap: 18px; }
+    .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    h2 { font-size: clamp(25px, 3vw, 36px); line-height: 1.2; letter-spacing: -.025em; margin: 0 0 12px; }
+    h3 { font-size: 20px; line-height: 1.3; margin: 4px 0 10px; }
+    h4 { margin: 18px 0 5px; }
+    p { margin: 9px 0; }
+    .muted { color: var(--muted); }
+    .small { font-size: 13px; color: var(--muted); }
+    .callout { border-left: 4px solid var(--blue); background: var(--blue-soft); padding: 15px 18px; border-radius: 0 12px 12px 0; margin: 18px 0; }
+    .callout.green { border-color: var(--green); background: var(--green-soft); }
+    .callout.orange { border-color: var(--orange); background: var(--orange-soft); }
+    .callout.red { border-color: var(--red); background: var(--red-soft); }
+    .metric { padding: 18px; border: 1px solid var(--line); border-radius: 13px; background: #fbfcff; }
+    .metric strong { display: block; font-size: 28px; color: var(--blue); line-height: 1.15; }
+    .metric span { color: var(--muted); font-size: 14px; }
+    .flow { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; margin: 18px 0 6px; }
+    .flow .node { padding: 11px 14px; border: 1px solid #bfcdf4; border-radius: 12px; background: var(--blue-soft); color: #25458f; font-weight: 700; text-align: center; }
+    .flow .arrow { color: #8291ad; font-size: 22px; font-weight: 700; }
+    .flow .node.green { border-color: #b5e3ca; background: var(--green-soft); color: #126845; }
+    .flow .node.orange { border-color: #f0d39e; background: var(--orange-soft); color: #875000; }
+    svg.diagram { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 14px; background: #fbfcff; margin: 18px 0 8px; }
+    .diagram text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; fill: var(--ink); }
+    .diagram .title { font-size: 16px; font-weight: 750; }
+    .diagram .sub { font-size: 12px; fill: var(--muted); }
+    .diagram .box { stroke-width: 1.5; }
+    .diagram .arrow { stroke: #7d8ba4; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+    pre {
+      overflow-x: auto; background: #17212f; color: #eaf0fa; border-radius: 12px; padding: 17px 18px;
+      font: 13px/1.65 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; margin: 12px 0;
+    }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: .92em; background: #eef2f8; padding: 2px 5px; border-radius: 5px; }
+    pre code { background: transparent; padding: 0; }
+    .kw { color: #91c8ff; } .str { color: #b9e6a4; } .cm { color: #96a6ba; } .fn { color: #ffd18a; }
+    table { width: 100%; border-collapse: collapse; margin: 14px 0 4px; font-size: 14px; }
+    th, td { border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; padding: 11px 9px; }
+    th { color: #34445d; background: #f8faff; font-weight: 750; }
+    tr:last-child td { border-bottom: 0; }
+    ul, ol { padding-left: 22px; }
+    li { margin: 5px 0; }
+    details { border: 1px solid var(--line); border-radius: 12px; margin: 10px 0; background: #fff; }
+    summary { cursor: pointer; padding: 13px 16px; font-weight: 700; }
+    details > div { border-top: 1px solid var(--line); padding: 4px 16px 14px; }
+    .q { color: #263c70; }
+    .status { display: inline-block; padding: 3px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+    .status.ok { background: var(--green-soft); color: var(--green); }
+    .status.manual { background: var(--orange-soft); color: var(--orange); }
+    .status.warn { background: var(--red-soft); color: var(--red); }
+    .footer { border-top: 1px solid var(--line); padding: 22px 0 50px; color: var(--muted); font-size: 13px; }
+    @media (max-width: 760px) {
+      .grid.two, .grid.three { grid-template-columns: 1fr; }
+      .hero { padding-top: 42px; }
+      .flow { justify-content: flex-start; }
+      .flow .arrow { transform: rotate(90deg); }
+      th, td { padding: 9px 5px; }
+    }
+    @media print {
+      nav { display: none; }
+      .hero { padding: 25px 0; }
+      .card { box-shadow: none; break-inside: avoid; }
+      section { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="shell">
+      <div class="eyebrow">Context Guardian · implementation guide</div>
+      <h1>让 Agent 在压缩上下文时，别忘了最不该忘的事。</h1>
+      <p class="lead">这是一份面向开发者和面试讲解的实现说明：Context Guardian 不替代 Agent 的摘要器，而是在摘要发生前，先把“哪些信息必须留下、哪些可以丢掉、哪些应该问人”变成一个可检查、可复用的控制层。</p>
+      <div class="hero-tags">
+        <span class="tag">Python Core</span><span class="tag">JSONL Bridge</span><span class="tag">Pi Adapter</span><span class="tag">DeepSeek Harness Adapter</span><span class="tag">Human-in-the-loop</span>
+      </div>
+    </div>
+  </header>
+
+  <nav>
+    <div class="shell">
+      <a href="#one-minute">一分钟理解</a>
+      <a href="#architecture">架构</a>
+      <a href="#core">Python Core</a>
+      <a href="#bridge">JSONL Bridge</a>
+      <a href="#adapters">适配器</a>
+      <a href="#verification">验证</a>
+      <a href="#interview">面试拷打</a>
+    </div>
+  </nav>
+
+  <main class="shell">
+    <section id="one-minute">
+      <div class="card">
+        <h2>先用一分钟理解项目</h2>
+        <p>大模型上下文达到上限时，宿主 Agent 会把旧对话压缩成摘要。这个摘要通常是自动生成的，问题在于：模型可能保留“最后选了 PostgreSQL”，却忘记“为什么放弃 SQLite”；也可能留下大量 grep、npm install 和临时错误，把真正的项目约束挤掉。</p>
+        <div class="flow" aria-label="Context Guardian 主流程">
+          <div class="node">原始上下文</div><div class="arrow">→</div>
+          <div class="node">Inspect<br><span class="small">提取候选记忆</span></div><div class="arrow">→</div>
+          <div class="node green">Auto Keep / Drop</div><div class="arrow">→</div>
+          <div class="node orange">Human Review</div><div class="arrow">→</div>
+          <div class="node">Guidance</div><div class="arrow">→</div>
+          <div class="node green">宿主原生 Compaction</div>
+        </div>
+        <div class="callout green"><strong>一句话定位：</strong>Context Guardian 是“摘要前的记忆审查与指令补充层”，不是新的 Agent loop、向量数据库、RAG 系统或第二个摘要器。</div>
+        <div class="grid three">
+          <div class="metric"><strong>共享</strong><span>Python Core 负责候选、策略、Guidance</span></div>
+          <div class="metric"><strong>复用</strong><span>适配器复用宿主模型、认证、UI、持久化</span></div>
+          <div class="metric"><strong>可降级</strong><span>Guardian 出错时继续宿主原生压缩</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="architecture">
+      <div class="card">
+        <h2>一、整体架构：核心稳定，适配器贴近宿主</h2>
+        <p>项目刻意分成两类代码。Python Core 不知道 Pi 或 DeepSeek Harness 的内部 API；适配器只负责把宿主的消息、模型和交互能力转换成 Core 能理解的接口。</p>
+        <svg class="diagram" viewBox="0 0 1060 430" role="img" aria-label="Context Guardian overall architecture">
+          <defs><marker id="arrow" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto"><path d="M0,0 L9,3 L0,6 z" fill="#7d8ba4"/></marker></defs>
+          <rect class="box" x="32" y="35" width="236" height="120" rx="14" fill="#eaf0ff" stroke="#bfcdf4"/>
+          <text class="title" x="52" y="70">Pi Adapter</text><text class="sub" x="52" y="96">session_before_compact</text><text class="sub" x="52" y="119">Pi UI + current model + auth</text>
+          <rect class="box" x="32" y="270" width="236" height="120" rx="14" fill="#e9f8f0" stroke="#b5e3ca"/>
+          <text class="title" x="52" y="305">DeepSeek Harness Adapter</text><text class="sub" x="52" y="331">override BasicCompactionEngine</text><text class="sub" x="52" y="354">Harness UI + ctx.llm + sessions</text>
+          <rect class="box" x="410" y="74" width="255" height="270" rx="16" fill="#fff" stroke="#9eacc1"/>
+          <text class="title" x="435" y="112">JSONL Bridge</text><text class="sub" x="435" y="140">request / provider_request</text><text class="sub" x="435" y="162">provider_response / result</text><text class="sub" x="435" y="202">协议版本、request id、超时</text><text class="sub" x="435" y="224">最大 payload、非法 JSON</text><text class="sub" x="435" y="246">stdout 只放协议帧</text><text class="sub" x="435" y="268">stderr 放日志</text>
+          <rect class="box" x="780" y="74" width="240" height="270" rx="16" fill="#fff4df" stroke="#f0d39e"/>
+          <text class="title" x="805" y="112">Python Core</text><text class="sub" x="805" y="145">models.py</text><text class="sub" x="805" y="167">inspector.py</text><text class="sub" x="805" y="189">policy.py</text><text class="sub" x="805" y="211">guidance.py</text><text class="sub" x="805" y="233">providers.py</text><text class="sub" x="805" y="255">cli.py / verification.py</text>
+          <path class="arrow" d="M268 95 L410 145"/><path class="arrow" d="M268 330 L410 274"/><path class="arrow" d="M665 205 L780 205"/>
+          <text class="sub" x="302" y="99">宿主调用</text><text class="sub" x="302" y="308">同一协议</text><text class="sub" x="684" y="194">候选 / Guidance</text>
+          <path class="arrow" d="M780 255 L665 255"/><text class="sub" x="681" y="278">结构化结果</text>
+        </svg>
+        <table>
+          <thead><tr><th>层</th><th>负责什么</th><th>不负责什么</th></tr></thead>
+          <tbody>
+            <tr><td>Python Core</td><td>候选记忆抽取、评分、Keep/Drop/Review 策略、Guidance 生成</td><td>不管理 Agent loop、token window、session 持久化</td></tr>
+            <tr><td>JSONL Bridge</td><td>把 Python 子进程和宿主 TypeScript 进程连接起来</td><td>不持有 API Key，不自己选择宿主模型</td></tr>
+            <tr><td>Pi Adapter</td><td>接 Pi hook，询问 Pi UI，调用 Pi 原生 <code>compact(...)</code></td><td>不重写 Pi 的摘要格式和 session 事务</td></tr>
+            <tr><td>DeepSeek Adapter</td><td>装饰 <code>BasicCompactionEngine.summarize()</code>，接 Harness UI 和 <code>ctx.llm</code></td><td>不重写 Harness 的 compaction range、token accounting、持久化</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="core">
+      <div class="card">
+        <h2>二、Python Core：把模糊的“记住什么”结构化</h2>
+        <p>Core 的公开入口很小，方便任何未来的宿主接入：</p>
+        <pre><code><span class="kw">guardian</span> = ContextGuardian(provider=<span class="kw">None</span>)
+result = guardian.inspect(messages)
+
+decisions = [
+    {<span class="str">"candidate_id"</span>: result.review[0].id, <span class="str">"action"</span>: <span class="str">"keep"</span>}
+]
+guidance = guardian.build_guidance(result.candidates, decisions)
+</code></pre>
+
+        <h3>2.1 数据模型</h3>
+        <div class="grid two">
+          <div class="metric"><strong>ConversationMessage</strong><span>适配器归一化后的最小消息：role、content、id、tool、error。</span></div>
+          <div class="metric"><strong>MemoryCandidate</strong><span>原子候选：内容、类别、importance、confidence、来源消息和建议动作。</span></div>
+          <div class="metric"><strong>InspectionResult</strong><span>完整 candidates，以及已经分组的 auto_keep、auto_drop、review。</span></div>
+          <div class="metric"><strong>CompactionGuidance</strong><span>Must preserve、Can discard、Unresolved 三段文字，传给宿主摘要器。</span></div>
+        </div>
+        <div class="callout">为什么要有 candidate id？因为 Review 发生在异步边界甚至跨进程边界，不能靠数组下标关联回答。规则模式用 <code>source_message_id + category + content</code> 做 SHA-1 截断值，输入不变时 ID 稳定。</div>
+
+        <h3>2.2 Inspector：先保守提取，再交给策略</h3>
+        <p>规则模式会从用户消息、助手消息、工具结果中提取原文候选；它不凭空改写语义。比如出现 <code>must</code>、<code>decision</code>、<code>TODO</code>、<code>abandoned</code> 等信号时，分到对应类别；工具输出通常标成低价值。</p>
+        <p>Provider 模式则让宿主当前模型输出 <code>CandidateBatch</code>，再由 Pydantic 校验和同一套 Policy 重新归类。模型可以帮助发现原子化候选，但最终是否 Keep/Drop 仍由 Policy 和人来控制。</p>
+        <pre><code><span class="kw">for</span> message <span class="kw">in</span> messages:
+    <span class="kw">for</span> sentence <span class="kw">in</span> split_into_atomic_lines(message.content):
+        candidate = classify_without_inventing_facts(sentence, message.role)
+        candidate.suggested_action = policy.decide(candidate)
+        candidates.append(candidate)
+</code></pre>
+
+        <h3>2.3 Policy：三种动作和类别优先级</h3>
+        <table>
+          <thead><tr><th>条件</th><th>动作</th><th>直觉</th></tr></thead>
+          <tbody>
+            <tr><td>重要性 ≥ 0.80 且置信度 ≥ 0.80，且属于目标/约束/决定/TODO/失败尝试等保留类</td><td><span class="status ok">Keep</span></td><td>高价值且证据足，自动保留</td></tr>
+            <tr><td>属于 tool_output / temporary，且置信度 ≥ 0.80</td><td><span class="status warn">Drop</span></td><td>确定是噪声，自动丢弃</td></tr>
+            <tr><td>重要性 ≤ 0.25 且置信度 ≥ 0.80</td><td><span class="status warn">Drop</span></td><td>低价值且判断稳定</td></tr>
+            <tr><td>其他情况</td><td><span class="status manual">Review</span></td><td>不确定，不替人做决定</td></tr>
+          </tbody>
+        </table>
+        <p class="small">类别优先级是覆盖层：goal、constraint、decision、failed_attempt、todo、working_state 等偏向保留；tool_output、temporary 偏向丢弃。阈值本身仍是可解释的数值策略。</p>
+
+        <h3>2.4 Guidance：不是摘要，而是摘要的“护栏”</h3>
+        <pre><code>Context Guardian review guidance. This is guidance for the native compaction summary, not a replacement summary.
+
+Must preserve:
+- PostgreSQL is the final database choice.
+- auth.py is still incomplete and needs the OAuth callback implementation.
+
+Can discard:
+- grep output from a transient diagnostic command.
+
+Unresolved / review carefully:
+- SQLite was abandoned because concurrent writes caused locking problems.
+</code></pre>
+        <p>Guidance 的职责是告诉原生 summarizer “哪些事实不可丢、哪些噪声可以忽略、哪些事项仍需谨慎处理”。最终摘要仍由 Pi 或 DeepSeek Harness 自己生成，因此可以保留宿主已有的摘要格式、文件追踪和边界语义。</p>
+      </div>
+    </section>
+
+    <section id="bridge">
+      <div class="card">
+        <h2>三、JSONL Bridge：为什么要双向协议</h2>
+        <p>Python Core 需要模型 Provider，但“当前模型”和认证信息属于宿主。于是 TypeScript 进程启动 Python 子进程，通过 stdin/stdout 传递 JSONL。Python 需要模型时，不能自己请求 API，而是发回一个 <code>provider_request</code>，由宿主执行后回传。</p>
+        <svg class="diagram" viewBox="0 0 1060 470" role="img" aria-label="JSONL bridge sequence">
+          <defs><marker id="arrow2" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto"><path d="M0,0 L9,3 L0,6 z" fill="#7d8ba4"/></marker></defs>
+          <text class="title" x="160" y="35">Host Adapter</text><text class="title" x="520" y="35">Python Bridge</text><text class="title" x="850" y="35">Host Model</text>
+          <path d="M190 52 L190 425 M550 52 L550 425 M880 52 L880 425" stroke="#d3dbe8" stroke-dasharray="5 6"/>
+          <path d="M205 90 L535 90" stroke="#7d8ba4" stroke-width="2" marker-end="url(#arrow2)"/><text class="sub" x="260" y="80">request: inspect + messages + provider=host</text>
+          <path d="M535 165 L205 165" stroke="#7d8ba4" stroke-width="2" marker-end="url(#arrow2)"/><text class="sub" x="260" y="155">provider_request: prompt + schema + request_id</text>
+          <path d="M565 235 L865 235" stroke="#7d8ba4" stroke-width="2" marker-end="url(#arrow2)"/><text class="sub" x="635" y="225">ctx.llm / completeSimple</text>
+          <path d="M865 290 L565 290" stroke="#7d8ba4" stroke-width="2" marker-end="url(#arrow2)"/><text class="sub" x="636" y="280">provider_response: ok + data</text>
+          <path d="M535 365 L205 365" stroke="#7d8ba4" stroke-width="2" marker-end="url(#arrow2)"/><text class="sub" x="278" y="355">result: InspectionResult / Guidance</text>
+          <text class="sub" x="120" y="445">stdout：协议帧</text><text class="sub" x="475" y="445">stderr：日志</text><text class="sub" x="805" y="445">不把 API Key 交给 Python</text>
+        </svg>
+        <h3>协议帧的核心约束</h3>
+        <div class="grid two">
+          <div>
+            <ul>
+              <li><strong>版本化：</strong><code>protocol_version: 1</code>，未来可以演进。</li>
+              <li><strong>可关联：</strong>每个请求和 Provider 子请求都有 <code>request_id</code>。</li>
+              <li><strong>可验证：</strong>Python 端用 Pydantic 验证模型返回结构。</li>
+            </ul>
+          </div>
+          <div>
+            <ul>
+              <li><strong>可终止：</strong>超时、AbortSignal、子进程退出都会结束等待。</li>
+              <li><strong>有边界：</strong>单帧最大 2 MB，避免异常 payload 拖垮进程。</li>
+              <li><strong>可诊断：</strong>stdout 不混入普通日志，stderr 单独记录。</li>
+            </ul>
+          </div>
+        </div>
+        <pre><code><span class="cm"># Python HostModelProvider 的伪代码</span>
+send({ <span class="str">"type"</span>: <span class="str">"provider_request"</span>, <span class="str">"request_id"</span>: id, <span class="str">"schema"</span>: schema })
+<span class="kw">while</span> <span class="kw">true</span>:
+    frame = read_json_line()
+    <span class="kw">if</span> frame.request_id != id:
+        <span class="kw">raise</span> ProviderError(<span class="str">"unmatched response"</span>)
+    <span class="kw">if</span> <span class="kw">not</span> frame.ok:
+        <span class="kw">raise</span> ProviderError(frame.error)
+    <span class="kw">return</span> schema.validate(frame.data)
+</code></pre>
+        <div class="callout orange"><strong>安全边界：</strong>Python 子进程的环境变量只允许 PATH、locale、临时目录和显式 PYTHONPATH。Pi 的 API Key 由 TypeScript 侧的 <code>modelRegistry</code> 使用；DeepSeek Harness 由 <code>ctx.llm</code> 使用。Key 不通过 JSONL 传递。</div>
+      </div>
+    </section>
+
+    <section id="adapters">
+      <div class="card">
+        <h2>四、两个适配器：共享意图，但不能共享宿主代码</h2>
+        <p>适配器需要针对各自宿主的生命周期、消息结构、认证方式和 UI 交互方式实现。这不是重复造轮子，而是把宿主差异隔离起来：将来增加 DeepSeek Harness、Claude Code 或其他 harness 时，复用 Core，新增宿主适配器和宿主专属测试。</p>
+
+        <h3>4.1 Pi Adapter 的路线</h3>
+        <div class="flow"><div class="node">session_before_compact</div><div class="arrow">→</div><div class="node">messagesToSummarize</div><div class="arrow">→</div><div class="node">Python inspect</div><div class="arrow">→</div><div class="node orange">Pi UI confirm</div><div class="arrow">→</div><div class="node green">Pi compact(...)</div></div>
+        <ol>
+          <li>监听 Pi 的 <code>session_before_compact</code>，读取 <code>event.preparation.messagesToSummarize</code> 和已有 <code>previousSummary</code>。</li>
+          <li>把 Pi 的 <code>toolResult</code> 等消息转换成 Core 的 <code>ConversationMessage</code>。</li>
+          <li>通过 JSONL 请求 Python Core 检查。Provider 请求回到 Pi 当前模型，通过 <code>completeSimple</code> 得到结构化 JSON。</li>
+          <li>自动应用 Keep/Drop；Review 候选逐项调用 <code>ctx.ui.confirm</code>。没有 UI 时按保守 Keep。</li>
+          <li>生成 Guidance，读取当前模型认证，调用 Pi 官方 <code>compact(...)</code>，把 Guidance 合并到 <code>customInstructions</code>。</li>
+          <li>任意 Guardian 错误都返回 <code>undefined</code>，让 Pi 继续自己的原生 compaction。</li>
+        </ol>
+        <pre><code><span class="kw">const</span> nativeResult = <span class="kw">await</span> compact(
+  event.preparation,
+  ctx.model,
+  auth.apiKey,
+  auth.headers,
+  event.customInstructions + <span class="str">"\n\n"</span> + guidance.text,
+  event.signal,
+  ctx.thinkingLevel,
+)
+<span class="kw">return</span> { compaction: nativeResult }
+</code></pre>
+
+        <h3>4.2 DeepSeek Harness Adapter 的路线</h3>
+        <div class="flow"><div class="node green">BasicCompactionEngine</div><div class="arrow">→</div><div class="node">override summarize()</div><div class="arrow">→</div><div class="node">Python inspect</div><div class="arrow">→</div><div class="node orange">ctx.userQuestions.ask</div><div class="arrow">→</div><div class="node green">super.summarize()</div></div>
+        <ol>
+          <li>通过 <code>cordis.patch.yml</code> 禁用官方 <code>compaction-basic</code> row，插入 Context Guardian 的 <code>ContextGuardianCompactionEngine</code>。</li>
+          <li>继承 <code>BasicCompactionEngine</code>，只覆盖受保护的 <code>summarize(input, agent, signal)</code> seam。</li>
+          <li>调用 <code>ctx.llm.stream</code>，读取 Agent 当前 request header 的 provider/model。认证仍由 Harness 内部处理。</li>
+          <li>Review 候选通过 <code>ctx.userQuestions.ask</code> 进入 Harness 的 Web question composer；没有 answerer 时保守 Keep。</li>
+          <li>把 Guidance 作为额外的 plugin user message 加到原生 summarizer 输入中，再调用 <code>super.summarize(...)</code>。</li>
+          <li>Harness 继续负责 compact range、token meter、compaction markers、summary framing 和 session persistence。</li>
+        </ol>
+        <pre><code><span class="kw">protected override async</span> summarize(input, agent, signal) {
+  <span class="kw">try</span> {
+    <span class="kw">const</span> inspection = <span class="kw">await</span> bridge.inspect(<span class="kw">this</span>.ctx, agent, normalizeInput(input), signal)
+    <span class="kw">const</span> decisions = autoDecisions(inspection) + <span class="kw">await</span> review(inspection.review)
+    <span class="kw">const</span> guidance = <span class="kw">await</span> bridge.guidance(..., decisions, signal)
+    <span class="kw">return</span> <span class="kw">super</span>.summarize(appendGuidance(input, guidance.text), agent, signal)
+  } <span class="kw">catch</span> (error) {
+    logWarning(error)
+    <span class="kw">return</span> <span class="kw">super</span>.summarize(input, agent, signal)
+  }
+}
+</code></pre>
+        <div class="callout red"><strong>验证判定要注意：</strong>DeepSeek Harness 处于 developer preview。运行 fixture 后看到“压缩成功”，只能证明 native compaction 成功；只有实际出现 Context Guardian 的 Review UI，并完成 Keep/Drop 选择，才证明人工审核链路也通过。若宿主没有挂载 user-question answerer，适配器会按设计保守 Keep 并继续压缩。</div>
+
+        <h3>4.3 为什么不做一个“完全通用的适配器测试”</h3>
+        <table>
+          <thead><tr><th>共享测试</th><th>宿主专属测试</th></tr></thead>
+          <tbody>
+            <tr><td>候选模型校验、规则分类、阈值、稳定 ID、Guidance、JSONL 请求关联</td><td>Pi hook 数据转换、Pi confirm、Pi compact helper、Pi auth registry</td></tr>
+            <tr><td>Provider 合法/非法输出、超时、错误和规则降级</td><td>Harness 的 summarize seam、Cordis patch、ctx.llm、userQuestions UI</td></tr>
+            <tr><td>不依赖某个宿主的核心回归</td><td>真实宿主 UI 和原生 compaction 事务的端到端验证</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="failure">
+      <div class="card">
+        <h2>五、失败策略：为什么是 fail-open</h2>
+        <p>Context Guardian 是增强层，不应因为自己的 bug 让 Agent 无法继续工作。核心原则是：Guardian 失败，宿主原生 compaction 继续。</p>
+        <div class="grid two">
+          <div class="callout green"><strong>可继续的情况</strong><br>Python 未安装、Provider 返回非法 JSON、模型请求失败、超时、桥接进程退出、用户取消、宿主 API 不兼容。</div>
+          <div class="callout orange"><strong>保守选择</strong><br>无 UI 时不假装“人已经审过”，而是对未决候选 Keep，然后把结果交给原生摘要器。</div>
+        </div>
+        <pre><code><span class="kw">try</span>:
+    inspection = guardian.inspect(...)
+    decisions = apply_auto_actions(inspection) + human_review(inspection.review)
+    guidance = guardian.build_guidance(...)
+    <span class="kw">return</span> native_compact(guidance)
+<span class="kw">except</span> Exception:
+    log(<span class="str">"Context Guardian unavailable; continue native compaction"</span>)
+    <span class="kw">return</span> native_compact_without_guidance()
+</code></pre>
+        <p>这也解释了为什么测试不能只检查“Guardian 抛错了”：真正的验收标准是，增强层失败后，宿主仍然可以完成原生压缩。</p>
+      </div>
+    </section>
+
+    <section id="verification">
+      <div class="card">
+        <h2>六、如何验证：从快到完整</h2>
+        <p>项目提供多层验证。它们不是互相替代，而是分别定位 Core、协议、宿主装载和人工交互问题。</p>
+        <table>
+          <thead><tr><th>层级</th><th>入口</th><th>验证什么</th><th>是否需要 API Key</th></tr></thead>
+          <tbody>
+            <tr><td>Python Core</td><td><code>.venv313/bin/python -m pytest -q</code></td><td>模型、Inspector、Policy、Guidance、CLI、Provider、Verification</td><td>否</td></tr>
+            <tr><td>确定性 fixture</td><td><code>context-guardian verify examples/conversation.json</code></td><td>关键记忆 retention、噪声 removal、ID 稳定、Guidance 三段</td><td>否</td></tr>
+            <tr><td>Pi bridge / adapter</td><td><code>npm run pi-smoke</code></td><td>Pi extension 装载、JSONL bridge、规则降级</td><td>通常否</td></tr>
+            <tr><td>Pi 交互 fixture</td><td><code>npm run pi-fixture-smoke</code></td><td>预置长对话、真实 Pi UI、Keep/Drop、原生 compaction</td><td>使用 Pi 当前登录模型时需要</td></tr>
+            <tr><td>DeepSeek Harness bridge</td><td><code>npm run test:dsh</code></td><td>消息归一化、host provider、local guidance</td><td>否，测试使用 replay</td></tr>
+            <tr><td>DeepSeek Harness 交互 fixture</td><td><code>npm run dsh-fixture-smoke</code></td><td>临时 profile、预置长 session、Harness Web、Review UI、native compaction</td><td>否，使用 replay；需要能启动 DSH Web</td></tr>
+          </tbody>
+        </table>
+        <h3>推荐验证顺序</h3>
+        <div class="flow"><div class="node">verify fixture</div><div class="arrow">→</div><div class="node">Python tests</div><div class="arrow">→</div><div class="node">adapter bridge tests</div><div class="arrow">→</div><div class="node orange">宿主交互 fixture</div></div>
+        <ol>
+          <li>先跑确定性 Core 验证，排除规则和 Guidance 问题。</li>
+          <li>再跑对应 adapter 的 bridge/typecheck，排除消息和协议问题。</li>
+          <li>最后运行目标宿主的交互 fixture。Pi 和 DeepSeek Harness 要分别验证，因为它们的 hook/UI contract 不同。</li>
+          <li>人工验收时至少确认：项目目标、API 约束、PostgreSQL、SQLite 放弃原因、未完成的 <code>auth.py</code> 被保留；grep、npm install 和已解决临时错误被标为低价值。</li>
+        </ol>
+        <div class="callout">标准 fixture 的价值在于：用户不需要真实进行几十轮对话。脚本会创建一个足够大的临时 session，直接打开宿主 UI。它测试的是“压缩发生时的完整链路”，不是用户日常对话内容本身。</div>
+      </div>
+    </section>
+
+    <section id="release">
+      <div class="card">
+        <h2>七、发布和使用边界</h2>
+        <div class="grid two">
+          <div>
+            <h3>当前可展示的项目亮点</h3>
+            <ul>
+              <li>不是单纯 Prompt，而是有数据模型、策略、协议、宿主 adapter 和测试矩阵。</li>
+              <li>明确复用宿主模型和认证，不把密钥传给 Python 子进程。</li>
+              <li>保留宿主原生 compaction，避免与 session persistence、token accounting 冲突。</li>
+              <li>有 Human-in-the-loop，也有 headless 下的可解释降级行为。</li>
+              <li>可以用同一 Python Core 扩展新的 harness adapter。</li>
+            </ul>
+          </div>
+          <div>
+            <h3>当前需要诚实说明的限制</h3>
+            <ul>
+              <li>模型输出不是可信输入，必须做 schema 校验和边界控制。</li>
+              <li>人工 Review 会增加一次等待，候选越多，交互成本越高。</li>
+              <li>适配器依赖宿主 API；DeepSeek Harness 当前仍是 developer preview。</li>
+              <li>没有 UI answerer 时，Review 不能伪装成已确认，只能保守 Keep。</li>
+              <li>发布到 PyPI 前要先处理 distribution name 冲突：<code>context-guardian</code> 已被占用，不能直接覆盖，应选择新的包名并同步 README/安装命令。</li>
+            </ul>
+          </div>
+        </div>
+        <div class="callout green"><strong>工程取舍：</strong>把“记忆决策”从宿主摘要器中抽出来，使它可观察、可测试、可插拔；把“真正的压缩事务”留给宿主，使系统更容易和现有 Agent 共存。</div>
+      </div>
+    </section>
+
+    <section id="interview">
+      <div class="card">
+        <h2>八、面试官拷打：问题与参考回答</h2>
+        <p class="muted">下面的问题刻意偏尖锐，适合用来检查自己是否真的理解了项目，而不是只会复述 README。</p>
+
+        <details open><summary class="q">1. 你这个项目和“给摘要 Prompt 加几句话”有什么本质区别？</summary><div><strong>回答：</strong>本质区别是它把摘要前的记忆决策显式化了。输入先被抽取成带类别、分数、来源和稳定 ID 的候选，再经过可解释 Policy 自动 Keep/Drop，剩余不确定项交给人，最后才生成 Guidance。Guidance 只是输入给宿主 summarizer 的约束，不替代宿主摘要器，因此这不是 Prompt 小技巧，而是一个可测试的控制层。</div></details>
+        <details><summary class="q">2. 为什么不直接让模型生成最终摘要？这样不是更简单吗？</summary><div><strong>回答：</strong>直接生成摘要会把两个问题混在一起：一是“如何压缩语言”，二是“哪些内容有资格被保留”。Context Guardian 专注第二个问题，避免重写宿主的摘要格式、文件追踪、token 预算和持久化协议。这样可以复用 Pi/Harness 已经经过验证的 compaction 实现，同时把高风险的 Keep/Drop 决策变得可审查。</div></details>
+        <details><summary class="q">3. 为什么模型返回了候选后还要再过一遍 Policy？</summary><div><strong>回答：</strong>模型输出是不可信的外部输入，即使 schema 合法，也不代表策略正确。Policy 是确定性的安全边界：高重要性且高置信度才自动 Keep，工具日志和临时输出倾向 Drop，其余进入 Review。这样模型负责提高召回，Policy 负责限制自动动作，人负责处理边界情况。</div></details>
+        <details><summary class="q">4. 你为什么不把 API Key 传给 Python，让 Python 自己调用模型？</summary><div><strong>回答：</strong>因为认证属于宿主运行时。Pi 已经有 model registry，Harness 已经有 <code>ctx.llm</code>；如果把 Key 复制给 Python，就会增加泄露面、产生双重配置，也可能绕过宿主的认证刷新和 provider 选择。现在 Python 只发结构化 Provider 请求，真正的模型调用在 TypeScript 宿主侧完成。</div></details>
+        <details><summary class="q">5. JSONL 为什么比 HTTP 更合适？</summary><div><strong>回答：</strong>首版是本机、单次任务、无服务部署。JSONL 不需要端口、Web Server 或额外生命周期管理，stdin/stdout 天然适合父子进程。通过版本号、request ID、帧大小、超时和非法输入处理，可以得到足够清晰的协议边界。未来如果有远程服务需求，再抽象传输层，不必改变 Core 数据模型。</div></details>
+        <details><summary class="q">6. fail-open 会不会导致 Guardian 失效却没人知道？</summary><div><strong>回答：</strong>fail-open 的意思是“不阻断宿主工作”，不是“静默吞掉错误”。适配器会把错误写入 stderr 或宿主 UI warning，同时返回宿主原生 compaction。监控和诊断应统计 bridge error、timeout、provider error 和 review unavailable；但在上下文已经超限的时刻，继续原生压缩比因为增强层失败而让 Agent 整体停摆更重要。</div></details>
+        <details><summary class="q">7. 为什么 Pi 和 DeepSeek Harness 必须有两套端到端测试？</summary><div><strong>回答：</strong>共享的是 Core 语义，不能共享宿主行为。Pi 的入口是 <code>session_before_compact</code>，UI 是 <code>ctx.ui.confirm</code>，原生调用是 <code>compact(...)</code>；Harness 的入口是继承 engine 的 <code>summarize()</code>，UI 是 Cordis user-question answerer，原生调用是 <code>super.summarize()</code>。只有各自宿主的 fixture 才能验证消息转换、认证复用、UI 和 compaction 事务真的接上了。</div></details>
+        <details><summary class="q">8. 如果用户没有 UI，Review 候选怎么办？</summary><div><strong>回答：</strong>不进行伪交互。Pi 和 Harness 都按保守 Keep 处理未决候选，然后继续 native compaction。理由是丢掉不确定的信息风险通常高于多保留一些信息；同时会保留 warning/诊断，让用户知道人工审核没有发生。可用环境变量或测试模式显式指定 keep/drop，但那是自动化测试控制，不应冒充人工判断。</div></details>
+        <details><summary class="q">9. 这个项目最大的性能成本是什么？</summary><div><strong>回答：</strong>首先是一次结构化候选提取模型调用；其次是不确定候选的人工等待；最后是 Guidance 被附加到摘要输入带来的少量 token。优化方向是规则模式先筛掉明显噪声、只在需要时使用模型、合并 Review 问题、限制候选数量，并复用宿主当前模型和连接。项目不引入向量库或长期 memory database，所以不会增加常驻索引成本。</div></details>
+        <details><summary class="q">10. 这个项目现在能不能马上说“已经发布到 PyPI，别人 pip install 就能用”？</summary><div><strong>回答：</strong>不能这样表述。当前代码和本地 editable 安装链路已具备，但 PyPI 上 <code>context-guardian</code> 这个 distribution name 已被其他项目占用，正式发布前必须换一个未占用的包名，并同步入口文档和安装命令。适配器也要分别按 Pi/Harness 的包管理和版本范围发布，不能把“仓库可运行”直接等同于“两个公共 registry 都已发布”。</div></details>
+        <details><summary class="q">11. 你会如何证明它真的减少了“错误遗忘”？</summary><div><strong>回答：</strong>先用确定性 fixture 定义可重复指标：Critical Memory Retention、Noise Removal、Human Review Cost。再做宿主级对照实验：同一长对话分别进行原生 compaction 和 Guardian-guided compaction，检查目标、约束、最终决定、失败原因和 TODO 是否进入最终摘要，并统计工具噪声是否减少。最后用多组不同风格对话做回归，避免只对 demo fixture 过拟合。</div></details>
+        <details><summary class="q">12. 如果宿主升级 API，适配器坏了怎么办？</summary><div><strong>回答：</strong>适配器要锁定明确的宿主版本范围，并在启动时检测关键 API 是否存在；缺失时记录 warning，直接降级到 native compaction。CI 中分别固定 Pi 和 Harness 的兼容版本，运行 typecheck、bridge test 和交互 fixture。核心协议和 Python Core 不应因为某个宿主 API 变化而一起修改。</div></details>
+      </div>
+    </section>
+
+    <section>
+      <div class="card">
+        <h2>最后用一张图复述</h2>
+        <p>当面试官问“Context Guardian 到底做了什么”时，可以按下面这条链路回答：</p>
+        <div class="flow">
+          <div class="node">宿主准备压缩</div><div class="arrow">→</div>
+          <div class="node">归一化消息</div><div class="arrow">→</div>
+          <div class="node">抽取原子候选</div><div class="arrow">→</div>
+          <div class="node green">确定的自动处理</div><div class="arrow">→</div>
+          <div class="node orange">不确定的人工判断</div><div class="arrow">→</div>
+          <div class="node">生成三段 Guidance</div><div class="arrow">→</div>
+          <div class="node green">宿主原生摘要 + 可降级</div>
+        </div>
+        <p class="small">重点不是“我写了一个摘要器”，而是“我把摘要前最容易出错的记忆取舍决策，做成了可解释、可交互、可复用且不破坏宿主原生能力的控制层”。</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="shell">Context Guardian implementation explainer · 本文档为本地说明文档，不属于发布包的 Git 变更。</div>
+  </footer>
+</body>
+</html>

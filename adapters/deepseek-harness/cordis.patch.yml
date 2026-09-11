@@ -1,0 +1,9 @@
+# Replace DeepSeek Harness's basic backend with Context Guardian's decorated
+# backend. The native selection, transaction, persistence, and summary format
+# remain owned by dsh-compaction-basic.
+- id: compaction-basic
+  disabled: true
+
+- insert:
+    - id: context-guardian-compaction
+      name: 'context-guardian-deepseek-harness'

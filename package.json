@@ -1,9 +1,12 @@
 {
   "name": "context-guardian-workspace",
   "private": true,
-  "workspaces": ["adapters/pi"],
+  "workspaces": ["adapters/pi", "adapters/deepseek-harness"],
   "scripts": {
     "typecheck": "npm --workspace adapters/pi run typecheck",
+    "typecheck:dsh": "npm --workspace adapters/deepseek-harness run typecheck",
+    "test:dsh": "npm --workspace adapters/deepseek-harness run test",
+    "dsh-fixture-smoke": "npm --workspace adapters/deepseek-harness run fixture-smoke",
     "pi-smoke": "npm --workspace adapters/pi run smoke",
     "pi-fixture-smoke": "npm --workspace adapters/pi run fixture-smoke"
   }

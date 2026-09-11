@@ -1,0 +1,15 @@
+import type { Context } from "@deepseek-ai/cordis";
+import type { Agent } from "@deepseek-ai/dsh-agent";
+import type { Guidance, GuardianMessage, InspectionResult, MemoryCandidate } from "./types.js";
+export declare class GuardianBridgeError extends Error {
+}
+export declare function normalizeDeepSeekMessages(_system: string | undefined, messages: readonly any[]): GuardianMessage[];
+export declare class GuardianBridge {
+    inspect(ctx: Context, agent: Agent, messages: GuardianMessage[], signal: AbortSignal): Promise<InspectionResult>;
+    guidance(ctx: Context, agent: Agent, candidates: MemoryCandidate[], decisions: Array<{
+        candidate_id: string;
+        action: "keep" | "drop";
+    }>, signal: AbortSignal): Promise<Guidance>;
+    private request;
+}
+//# sourceMappingURL=bridge.d.ts.map

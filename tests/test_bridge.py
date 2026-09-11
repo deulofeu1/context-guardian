@@ -29,3 +29,29 @@ def test_bridge_rejects_unknown_operation():
     run_protocol(input_stream, output_stream)
     response = json.loads(output_stream.getvalue())
     assert response["ok"] is False
+
+
+def test_bridge_guidance_validates_json_candidates():
+    request = {
+        "protocol_version": 1,
+        "type": "request",
+        "request_id": "request-3",
+        "operation": "guidance",
+        "provider": "rules",
+        "candidates": [{
+            "id": "memory-1",
+            "content": "PostgreSQL is the final database choice.",
+            "category": "decision",
+            "importance": 0.91,
+            "confidence": 0.9,
+            "suggested_action": "review",
+            "source_message_ids": ["m1"],
+        }],
+        "decisions": [{"candidate_id": "memory-1", "action": "keep"}],
+    }
+    input_stream = io.StringIO(json.dumps(request) + "\n")
+    output_stream = io.StringIO()
+    run_protocol(input_stream, output_stream)
+    response = json.loads(output_stream.getvalue())
+    assert response["ok"] is True
+    assert "PostgreSQL" in response["result"]["text"]

@@ -7,6 +7,7 @@ import sys
 from typing import Any, TextIO
 
 from .inspector import ContextGuardian
+from .models import MemoryCandidate
 from .providers import HostModelProvider
 
 PROTOCOL_VERSION = 1
@@ -52,7 +53,7 @@ def handle_request(request: dict[str, Any], *, input_stream: TextIO, output_stre
         result = guardian.inspect_with_fallback(request.get("messages", []))
         return {"result": result.model_dump(mode="json")}
 
-    candidates = request.get("candidates", [])
+    candidates = [MemoryCandidate.model_validate(candidate) for candidate in request.get("candidates", [])]
     decisions = request.get("decisions", [])
     guidance = guardian.build_guidance(candidates, decisions)
     return {"result": guidance.model_dump(mode="json")}
