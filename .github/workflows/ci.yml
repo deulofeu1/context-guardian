@@ -20,7 +20,12 @@ jobs:
       - run: ruff check .
 
   pi:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      CONTEXT_GUARDIAN_PYTHON: python
     defaults:
       run:
         working-directory: adapters/pi
@@ -36,6 +41,7 @@ jobs:
         working-directory: .
       - run: npm install
       - run: npm run typecheck
+      - run: npm run test
       - run: npm run smoke
 
   deepseek-harness:

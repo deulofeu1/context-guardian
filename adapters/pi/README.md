@@ -14,13 +14,16 @@ python3 -m pip install context-guardian-core
 pi install npm:@context-guardian/pi
 ```
 
-Pi `0.82.1` and Node.js `22.19.0+` are required. The adapter starts `python3` for
-the core bridge. If the core is installed in a virtual environment, set its absolute
-interpreter path:
+Pi `0.82.1` and Node.js `22.19.0+` are required. The adapter starts `python3` on
+macOS/Linux and `python` on Windows for the core bridge. If the core is installed in a
+virtual environment, set its absolute interpreter path:
 
 ```bash
 export CONTEXT_GUARDIAN_PYTHON=/absolute/path/to/venv/bin/python
 ```
+
+The bridge timeout defaults to 120 seconds and can be lowered with
+`CONTEXT_GUARDIAN_TIMEOUT_MS` (values above 120 seconds are capped).
 
 To try a checkout directly instead, use `pi -e` or the repository's interactive
 fixture smoke. A `pi -e` load is temporary and does not need to be uninstalled.

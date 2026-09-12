@@ -6,10 +6,12 @@ import { spawn } from "node:child_process";
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repositoryRoot = resolve(packageRoot, "../..");
 const extension = resolve(packageRoot, "extensions/context-guardian.ts");
+const localPiCommand = resolve(repositoryRoot, "node_modules/.bin/pi");
+const localPiCandidates = process.platform === "win32"
+  ? [`${localPiCommand}.cmd`, localPiCommand]
+  : [localPiCommand];
 const piCommand = process.env.CONTEXT_GUARDIAN_PI ||
-  (existsSync(resolve(repositoryRoot, "node_modules/.bin/pi"))
-    ? resolve(repositoryRoot, "node_modules/.bin/pi")
-    : "pi");
+  (localPiCandidates.find((candidate) => existsSync(candidate)) || "pi");
 const pythonCandidates = [
   process.env.CONTEXT_GUARDIAN_PYTHON,
   resolve(repositoryRoot, ".venv313/bin/python"),
@@ -20,7 +22,8 @@ const pythonCandidates = [
 
 function requestLine(command, args, input, isMatch, timeoutMs = 10_000) {
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(command, args, { cwd: repositoryRoot, stdio: ["pipe", "pipe", "pipe"] });
+    const shell = process.platform === "win32" && /\.(?:cmd|bat)$/i.test(command);
+    const child = spawn(command, args, { cwd: repositoryRoot, shell, stdio: ["pipe", "pipe", "pipe"] });
     let buffer = "";
     let stderr = "";
     let settled = false;
@@ -92,7 +95,7 @@ async function checkBridge() {
         (line) => line.trim().startsWith('{"protocol_version":'),
       );
       const frame = JSON.parse(output);
-      if (!frame.ok || frame.request_id !== "context-guardian-bridge-smoke") {
+      if (frame.protocol_version !== 1 || !frame.ok || frame.request_id !== "context-guardian-bridge-smoke") {
         throw new Error("Python bridge returned an unsuccessful response");
       }
       return true;
