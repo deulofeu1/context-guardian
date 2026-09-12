@@ -41,6 +41,11 @@ The no-checkout installation shown below is the target end-user experience after
 release. The host CLIs remain separate prerequisites. The Python distribution is
 named `context-guardian-core`; its installed CLI remains `context-guardian`.
 
+Package publication is designed around npm Trusted Publishing with GitHub Actions
+OIDC. The release workflow does not use a long-lived `NPM_TOKEN`; configure the
+trusted publisher for each npm package as described in
+[`docs/publishing.md`](docs/publishing.md).
+
 ### Use this repository today
 
 ```bash

@@ -37,6 +37,10 @@ Agent 经常会在压缩时丢掉“为什么某条路径被放弃”。之后�
 测试使用。宿主 CLI 仍然需要单独安装。Python distribution 使用
 `context-guardian-core`，安装后的 CLI 仍然叫 `context-guardian`。
 
+npm 包采用 GitHub Actions Trusted Publishing（OIDC）发布，不使用长期
+`NPM_TOKEN`。每个 npm 包的 Trusted Publisher 配置方法见
+[`docs/publishing.md`](docs/publishing.md)。
+
 ## 现在从源码使用
 
 ```bash

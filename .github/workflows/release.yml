@@ -37,12 +37,17 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22.19.0
           registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      # npm Trusted Publishing requires npm 11.5.1 or newer.
+      - name: Upgrade npm for trusted publishing
+        run: npm install --global npm@11.5.1
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
@@ -51,9 +56,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run typecheck:dsh
       - run: npm run test:dsh
+      # Authentication is provided by GitHub OIDC after each package is configured
+      # with this repository's npm Trusted Publisher relationship.
       - run: npm publish --workspace adapters/pi --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - run: npm publish --workspace adapters/deepseek-harness --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
