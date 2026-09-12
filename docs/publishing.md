@@ -51,12 +51,17 @@ package and do not add an `NPM_TOKEN` secret.
 1. Bump the version in the package that changed.
 2. Push the commit to `main`.
 3. Open GitHub Actions → `Publish packages` → `Run workflow`.
-4. Select `npm` or `all`.
+4. Select the package set that has a new version: `python`, `pi`,
+   `deepseek-harness`, or `all`.
+
+Use `all` only when the Python core and both npm packages all have new versions.
+Selecting `pi` or `deepseek-harness` publishes only that adapter, so a patch release
+does not try to republish an existing version of the other npm package.
 
 The npm job installs npm 11.5.1+, requests the GitHub OIDC identity token, runs the
-checks, and publishes both packages without a registry token. `npm whoami` is not a
-valid Trusted Publishing check because OIDC authentication exists only during the
-publish operation.
+checks, and publishes the selected npm package(s) without a registry token.
+`npm whoami` is not a valid Trusted Publishing check because OIDC authentication
+exists only during the publish operation.
 
 For stricter release review, configure the trusted publisher for staged publishing
 and change the workflow to `npm stage publish`; approval then happens separately

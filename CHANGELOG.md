@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.2 - 2026-09-12 (DeepSeek Harness adapter)
+
+- Made the DeepSeek Harness Python bridge safe on Windows by preserving the runtime
+  variables required by Python and using the Windows `python` launcher by default.
+- Added structured bridge error categories, a longer configurable timeout, and
+  Windows CI coverage.
+- Added package-specific release workflow inputs so adapter patch releases publish
+  only the changed package.
+
 ## 0.1.1 - 2026-09-12
 
 - Published the Python core, Pi adapter, and DeepSeek Harness adapter.
