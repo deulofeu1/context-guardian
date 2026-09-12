@@ -28,14 +28,35 @@ Agent 经常会在压缩时丢掉“为什么某条路径被放弃”。之后�
 失败方案。Context Guardian 会在宿主 Agent 总结上下文前，找出长期有效的
 目标、约束、决定、失败尝试和未完成工作，同时过滤临时噪声。
 
-## 安装状态
+## 安装已发布的包
 
-目前仓库可以从源码安装，但 Python 和 npm 包还没有发布。因此现在的流程是：
-克隆或下载仓库 → 安装 Python 和 JavaScript 依赖 → 从仓库运行适配器。
-
-发布后的无源码安装方式如下。这是目标中的最终用户体验，目前还不能作为安装
-测试使用。宿主 CLI 仍然需要单独安装。Python distribution 使用
+Python 核心和两个宿主适配器都已经发布。正常使用不需要克隆仓库，也不需要安装
+仓库的 workspace 依赖；宿主 CLI 仍然需要单独安装。Python distribution 使用
 `context-guardian-core`，安装后的 CLI 仍然叫 `context-guardian`。
+
+Pi 安装核心和适配器：
+
+```bash
+python3 -m pip install context-guardian-core
+pi install npm:@context-guardian/pi
+```
+
+需要 Pi `0.82.1` 和 Node.js `22.19.0+`。如果核心安装在虚拟环境中，启动 Pi
+前显式指定解释器：
+
+```bash
+export CONTEXT_GUARDIAN_PYTHON=/absolute/path/to/venv/bin/python
+```
+
+DeepSeek Harness 安装核心，并把适配器安装到 Web profile：
+
+```bash
+python3 -m pip install context-guardian-core
+dsh plugin --profile web add context-guardian-deepseek-harness
+```
+
+需要 DeepSeek Harness `0.1.5-rc.x` 和 Node.js `22.19.0+`。Harness Web 还需要
+额外进行一次 preset 设置，见下面的适配器说明。
 
 npm 包采用 GitHub Actions Trusted Publishing（OIDC）发布，不使用长期
 `NPM_TOKEN`。每个 npm 包的 Trusted Publisher 配置方法见
@@ -86,13 +107,7 @@ npm run pi-fixture-smoke
 
 ### DeepSeek Harness
 
-先把本地适配器安装到 Web profile：
-
-```bash
-dsh plugin --profile web add "$PWD/adapters/deepseek-harness"
-```
-
-然后按适配器文档创建基于 `standard` 的用户 preset，并将其中的原生
+安装包后，按适配器文档创建基于 `standard` 的用户 preset，并将其中的原生
 `compaction-basic` 替换为 Context Guardian。运行交互式 fixture：
 
 ```bash
@@ -105,24 +120,46 @@ fixture 会预置一段足够长的会话，打开 Harness Web UI，在 SQLite �
 API Key。详细步骤见
 [`adapters/deepseek-harness/README.md`](adapters/deepseek-harness/README.md)。
 
-## 发布后的无源码安装（目标）
-
-```bash
-python -m pip install context-guardian-core
-pi install npm:@context-guardian/pi
-dsh plugin --profile web add context-guardian-deepseek-harness
-```
-
-这些命令要等包正式发布且 Python 包名问题解决后才会生效。
-
 ## 工作模式
 
 - 规则模式：本地、确定性、保守，是 CLI 默认模式。
 - Pi 模式：让 Pi 当前模型输出结构化候选，再调用 Pi 原生 compaction。
-- OpenAI 模式：独立 CLI 的可选 Provider，发布后安装 `context-guardian-core[openai]` 并配置 Key。
+- OpenAI 模式：独立 CLI 的可选 Provider，需要时安装 `context-guardian-core[openai]` 并配置 Key。
 
 如果桥接、模型调用或审查 UI 失败，适配器会 fail-open，继续宿主的原生
 compaction。
+
+## 禁用或卸载
+
+两个适配器都是可选的，不会锁定项目或会话，也不会修改项目源文件。
+
+Pi 如果之前只是用 `pi -e` 临时加载扩展，之后不再带这个参数即可。若是通过
+包安装，则执行：
+
+```bash
+pi remove npm:@context-guardian/pi
+# 如果是项目级安装：
+pi remove npm:@context-guardian/pi -l
+```
+
+`pi uninstall` 是 `pi remove` 的别名。移除包不会删除 Pi 会话数据，之后的
+`/compact` 会回到 Pi 原生流程。
+
+DeepSeek Harness 临时禁用时，先在 `Settings → Agent Presets` 选择原生
+`standard` preset，设为默认并新建 session。要完全移除 Web profile 中的适配器：
+
+```bash
+dsh plugin --profile web remove context-guardian-deepseek-harness
+```
+
+之后可以删除自定义的 `context-guardian` preset。由于 DSH 的 profile bundle 和
+preset 是两层配置，必须先切回 `standard`，再删除 bundle。如果卸载命令失败，
+先执行 `dsh plugin --profile web list` 检查当前 profile，不要直接删除整个 DSH
+目录。
+
+Claude Code 和 Codex 不属于当前 `main` 发布版本。之前的实验性适配器仍保留在
+`exploration/claude-code-codex` 分支。如果你曾经在本机安装过实验性的 Claude Code
+`PreCompact` hook，只需从 Claude Code 设置中删除这一条 hook；否则不需要恢复 CC。
 
 ## 集成能力矩阵
 

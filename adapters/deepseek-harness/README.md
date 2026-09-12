@@ -12,22 +12,17 @@ It is a decorator over `dsh-compaction-basic`. DeepSeek Harness continues to own
 
 ## Install
 
-DeepSeek Harness is currently a developer preview, so this adapter is pinned to the `0.1.5-rc.x` API family.
-
-The package is not published yet. Install the current checkout into the Web profile:
-
-```bash
-dsh plugin --profile web add /absolute/path/to/ContextGuardian/adapters/deepseek-harness
-```
-
-This checkout command installs the local adapter tarball into the profile. After npm
-publishing, the argument can be replaced with `context-guardian-deepseek-harness`.
-
-After publishing, the intended end-user command is:
+DeepSeek Harness is currently a developer preview, so this adapter is pinned to the
+`0.1.5-rc.x` API family. The adapter package is published; install it into the Web
+profile with:
 
 ```bash
+python3 -m pip install context-guardian-core
 dsh plugin --profile web add context-guardian-deepseek-harness
 ```
+
+For a source checkout, replace the package name with
+`/absolute/path/to/ContextGuardian/adapters/deepseek-harness`.
 
 Because DeepSeek Harness Web composes compaction inside the selected agent preset,
 installing the package alone does not replace the `standard` preset's nested native
@@ -64,6 +59,9 @@ export CONTEXT_GUARDIAN_PYTHON=/absolute/path/to/python
 
 The adapter does not receive or forward `DEEPSEEK_API_KEY`. Structured inspection calls go back through DeepSeek Harness's active `ctx.llm` route, so Harness remains the only process that resolves provider credentials.
 
+If the core is installed in a virtual environment, set
+`CONTEXT_GUARDIAN_PYTHON=/absolute/path/to/venv/bin/python` before starting Harness.
+
 Start the web profile and use a sufficiently long session or `/compact`:
 
 ```bash
@@ -82,6 +80,23 @@ The fixture creates an isolated Web profile, seeds a sufficiently large conversa
 opens the Harness UI, and pauses on a reviewable SQLite candidate. Select Keep or Drop,
 then confirm the native `/compact` result. It uses a replay model, so no DeepSeek API
 key is required. Exit the temporary Web process with Ctrl-C when finished.
+
+## Disable or uninstall
+
+To temporarily disable Context Guardian, open `Settings → Agent Presets`, select the
+native `standard` preset, make it the default, and start a new session. The custom
+preset can remain available for later use.
+
+For a full uninstall, switch away from the custom preset first, then remove the
+profile plugin and optionally delete the custom preset:
+
+```bash
+dsh plugin --profile web remove context-guardian-deepseek-harness
+```
+
+The native `standard` preset restores Harness's original compaction path. If the
+remove command fails, inspect the selected profile with
+`dsh plugin --profile web list` before making manual changes.
 
 ## Local development
 

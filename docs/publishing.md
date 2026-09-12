@@ -28,11 +28,11 @@ The package metadata contains the public repository URL required by npm provenan
 Trusted publishing also produces provenance automatically when publishing from this
 public GitHub repository.
 
-## First publication
+## First publication (historical)
 
-npm's trusted-publisher relationship is configured on an existing package. For the
-first `0.1.0` publication, sign in locally with npm and publish interactively with
-your account's normal 2FA challenge; this does not create an automation token:
+npm's trusted-publisher relationship is configured on an existing package. The first
+`0.1.0` publication was completed locally with npm 2FA; this did not create an
+automation token:
 
 ```bash
 npm login
@@ -43,8 +43,8 @@ cd ../deepseek-harness
 npm publish --access public
 ```
 
-After both package pages exist, configure their trusted publishers and do not add an
-`NPM_TOKEN` secret.
+Both package pages now exist. Keep the trusted-publisher configuration on each
+package and do not add an `NPM_TOKEN` secret.
 
 ## Subsequent releases
 

@@ -15,16 +15,17 @@ token 统计、会话事件、摘要格式、持久化和 `/compact` 命令。�
 ## 安装
 
 DeepSeek Harness 目前仍是 developer preview，适配器锁定 `0.1.5-rc.x` API 系列。
-当前包还没有发布，请从仓库安装本地适配器：
+适配器已经发布，安装 Python 核心并加入 Web profile：
+
+```bash
+python3 -m pip install context-guardian-core
+dsh plugin --profile web add context-guardian-deepseek-harness
+```
+
+从源码试用时，可以把包名替换为：
 
 ```bash
 dsh plugin --profile web add /absolute/path/to/ContextGuardian/adapters/deepseek-harness
-```
-
-正式发布后，目标命令是：
-
-```bash
-dsh plugin --profile web add context-guardian-deepseek-harness
 ```
 
 由于 DeepSeek Harness Web 会在选中的 agent preset 内组合 compaction，仅安装包
@@ -61,6 +62,9 @@ export CONTEXT_GUARDIAN_PYTHON=/absolute/path/to/python
 适配器不会接收或转发 `DEEPSEEK_API_KEY`。结构化检查会通过 Harness 当前的
 `ctx.llm` 路由执行，由 Harness 负责解析 Provider 凭证。
 
+如果核心安装在虚拟环境中，启动 Harness 前设置
+`CONTEXT_GUARDIAN_PYTHON=/absolute/path/to/venv/bin/python`。
+
 ## 交互式验证
 
 启动 Web profile：
@@ -81,6 +85,22 @@ SQLite 候选上暂停，让你选择 Keep 或 Drop，随后确认原生 `/compa
 
 在没有 answerer 的无头模式中，未决候选会保守地 Keep；也可以用
 `CONTEXT_GUARDIAN_REVIEW_MODE=keep` 或 `drop` 绕过询问 UI。
+
+## 禁用或卸载
+
+临时禁用时，在 `Settings → Agent Presets` 中选择原生 `standard` preset，设为
+默认并新建 session。自定义 preset 可以保留，之后还可重新启用。
+
+要完全卸载，先切换离开自定义 preset，再移除 profile 插件；之后可以删除自定义
+preset：
+
+```bash
+dsh plugin --profile web remove context-guardian-deepseek-harness
+```
+
+原生 `standard` preset 会恢复 Harness 原本的 compaction 流程。如果卸载命令
+失败，先执行 `dsh plugin --profile web list` 检查当前 profile，不要直接修改整个
+DSH 目录。
 
 ## 本地开发
 

@@ -6,28 +6,42 @@ Pi adapter for Context Guardian.
 
 ## Installation
 
-The packages are not published yet. To use the current checkout, install the Python
-core and JavaScript dependencies from the repository root:
+The package is published. Install the Python core and Pi adapter without cloning the
+repository:
 
 ```bash
-python -m pip install -e /absolute/path/to/ContextGuardian
-cd /absolute/path/to/ContextGuardian
-npm install
-```
-
-For the end-user release, the intended commands will be:
-
-```bash
-pip install context-guardian-core
+python3 -m pip install context-guardian-core
 pi install npm:@context-guardian/pi
 ```
 
-Until the release is published, load the source extension directly or use the
-repository's `npm run pi-fixture-smoke` workflow.
+Pi `0.82.1` and Node.js `22.19.0+` are required. The adapter starts `python3` for
+the core bridge. If the core is installed in a virtual environment, set its absolute
+interpreter path:
+
+```bash
+export CONTEXT_GUARDIAN_PYTHON=/absolute/path/to/venv/bin/python
+```
+
+To try a checkout directly instead, use `pi -e` or the repository's interactive
+fixture smoke. A `pi -e` load is temporary and does not need to be uninstalled.
 
 The adapter reuses Pi's current model and credentials. It does not persist or forward
 provider credentials to the Python process. If the bridge or review flow fails, Pi's
 native compaction continues unchanged.
+
+## Disable or uninstall
+
+To temporarily disable a manually loaded extension, stop passing the `-e` option.
+For a package installation, remove it from Pi settings:
+
+```bash
+pi remove npm:@context-guardian/pi
+# For a project-local installation:
+pi remove npm:@context-guardian/pi -l
+```
+
+`pi uninstall` is an alias. Removal does not delete project files or Pi sessions;
+future `/compact` calls use Pi's native compaction.
 
 Compatibility: Pi `0.82.1` and Node.js `22.19.0+`.
 

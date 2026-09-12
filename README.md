@@ -31,15 +31,36 @@ agent summarizes the context.
 
 ## Quick start
 
-### Installation status
+### Install the published packages
 
-This repository is source-installable today, but the Python and npm packages have
-not been published yet. That means the current path is clone/download → install
-the Python and JavaScript dependencies → run the adapter from the checkout.
+The Python core and both host adapters are published. The host CLIs remain separate
+prerequisites, but you do not need to clone this repository or install its workspace
+dependencies for normal use. The Python distribution is named
+`context-guardian-core`; its installed CLI remains `context-guardian`.
 
-The no-checkout installation shown below is the target end-user experience after
-release. The host CLIs remain separate prerequisites. The Python distribution is
-named `context-guardian-core`; its installed CLI remains `context-guardian`.
+For Pi, install the core and adapter:
+
+```bash
+python3 -m pip install context-guardian-core
+pi install npm:@context-guardian/pi
+```
+
+Pi `0.82.1` and Node.js `22.19.0+` are required. If the core is installed in a
+virtual environment, point the adapter at that interpreter before starting Pi:
+
+```bash
+export CONTEXT_GUARDIAN_PYTHON=/absolute/path/to/venv/bin/python
+```
+
+For DeepSeek Harness, install the core and adapter into the Web profile:
+
+```bash
+python3 -m pip install context-guardian-core
+dsh plugin --profile web add context-guardian-deepseek-harness
+```
+
+DeepSeek Harness `0.1.5-rc.x` and Node.js `22.19.0+` are required. Harness Web
+also needs a one-time preset change; see the adapter guide below.
 
 Package publication is designed around npm Trusted Publishing with GitHub Actions
 OIDC. The release workflow does not use a long-lived `NPM_TOKEN`; configure the
@@ -75,7 +96,7 @@ context-guardian verify examples/conversation.json
 checks critical-memory retention, noise removal, stable candidate IDs, and rendered
 guidance. It is a fast core check, not a replacement for the interactive Pi test.
 
-For the source Pi workflow, use the interactive fixture from the checkout:
+For the source Pi workflow, use the interactive fixture from a checkout:
 
 ```bash
 npm run pi-fixture-smoke
@@ -85,25 +106,12 @@ It opens Pi with a pre-seeded long conversation and lets you manually choose
 Keep/Drop. To load the source extension in an existing Pi session, see
 [`adapters/pi/README.md`](adapters/pi/README.md).
 
-For DeepSeek Harness, install the local adapter into the Web profile:
+For source development or release verification, install the local adapter into the
+Web profile:
 
 ```bash
 dsh plugin --profile web add "$PWD/adapters/deepseek-harness"
 ```
-
-### Install published packages after release
-
-These are the intended commands for end users once the package names are published
-and the Python distribution name is resolved:
-
-```bash
-python -m pip install context-guardian-core
-pi install npm:@context-guardian/pi
-dsh plugin --profile web add context-guardian-deepseek-harness
-```
-
-Until then, do not use these commands as an installation test; use the source
-workflow above.
 
 Inside Pi, the adapter reuses the current host model and its existing credentials.
 No second API key is required. The Python process never receives those credentials.
@@ -114,9 +122,6 @@ For DeepSeek Harness:
 ```bash
 dsh plugin --profile web add /absolute/path/to/ContextGuardian/adapters/deepseek-harness
 ```
-
-After the adapter is published, the path can be replaced with
-`context-guardian-deepseek-harness`.
 
 This adapter decorates DeepSeek Harness's native `dsh-compaction-basic` backend.
 It reuses Harness's active model route for structured inspection, presents uncertain
@@ -132,10 +137,46 @@ row; the adapter README documents the one-time preset setup.
 - Rules mode is local, deterministic, conservative, and the default for the CLI.
 - Pi mode asks the host agent's current model for structured candidates, then uses
   Pi's native compaction helper with the resulting guidance.
-- OpenAI is an optional standalone CLI provider: `pip install 'context-guardian-core[openai]'` after release.
+- OpenAI is an optional standalone CLI provider: `pip install 'context-guardian-core[openai]'` when needed.
 
 If the bridge, model call, or review UI fails, the adapter fails open and lets native
 Pi compaction continue normally.
+
+## Disable or uninstall
+
+Both adapters are opt-in and reversible. They do not lock a project or session into
+Context Guardian.
+
+For Pi, stop loading the extension if you used `pi -e`. For a package installation,
+remove it from user settings:
+
+```bash
+pi remove npm:@context-guardian/pi
+# For a project-local installation:
+pi remove npm:@context-guardian/pi -l
+```
+
+`pi uninstall` is an alias for `pi remove`. Removing the package leaves your project
+files and Pi session data untouched; future `/compact` calls use Pi's native path.
+
+For DeepSeek Harness, first select the native `standard` preset in
+`Settings → Agent Presets`, make it the default, and start a new session. To remove
+the adapter from the Web profile completely:
+
+```bash
+dsh plugin --profile web remove context-guardian-deepseek-harness
+```
+
+You may then delete the custom `context-guardian` preset. Switching presets is enough
+for a temporary disable; removing the plugin is the full uninstall. DSH's profile
+bundle and preset layers are separate, so switching back to `standard` must happen
+before removing the bundle. If an uninstall command fails, inspect the selected
+profile with `dsh plugin --profile web list` before making manual changes.
+
+Claude Code and Codex are not part of the `main` release. Their earlier experimental
+adapters remain on the `exploration/claude-code-codex` branch. If you installed an
+experimental Claude Code `PreCompact` hook locally, remove only that hook from your
+Claude Code settings; otherwise no CC restoration is needed.
 
 ## Integrations
 

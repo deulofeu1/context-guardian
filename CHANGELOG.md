@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.1 - 2026-09-12
+
+- Published the Python core, Pi adapter, and DeepSeek Harness adapter.
+- Documented published-package installation, interactive verification, and safe
+  disable/uninstall procedures for each host.
+- Clarified that Claude Code and Codex remain exploratory integrations outside
+  `main`.
+
 ## Unreleased
 
 - Added portable `build_checkpoint()` output for assisted integrations.

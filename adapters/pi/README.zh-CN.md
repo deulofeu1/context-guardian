@@ -6,23 +6,22 @@ Context Guardian 的 Pi 适配器，在 Pi 原生上下文压缩前增加候选�
 
 ## 安装
 
-目前 Python 和 npm 包还没有发布。使用当前仓库时，先安装 Python 核心和
-JavaScript 依赖：
+包已经发布。正常使用不需要克隆仓库，直接安装 Python 核心和 Pi 适配器：
 
 ```bash
-python -m pip install -e /absolute/path/to/ContextGuardian
-cd /absolute/path/to/ContextGuardian
-npm install
-```
-
-正式发布后，面向最终用户的目标命令是：
-
-```bash
-pip install context-guardian-core
+python3 -m pip install context-guardian-core
 pi install npm:@context-guardian/pi
 ```
 
-在包发布前，可以直接加载仓库中的扩展：
+需要 Pi `0.82.1` 和 Node.js `22.19.0+`。适配器默认使用 `python3` 启动核心
+桥接。如果核心安装在虚拟环境中，请指定绝对路径：
+
+```bash
+export CONTEXT_GUARDIAN_PYTHON=/absolute/path/to/venv/bin/python
+```
+
+如果要直接试用源码，可以使用 `pi -e` 或仓库中的交互式 fixture。`pi -e` 只对
+当前运行有效，不需要卸载：
 
 ```bash
 pi -e /absolute/path/to/ContextGuardian/adapters/pi/extensions/context-guardian.ts
@@ -36,6 +35,19 @@ npm run pi-fixture-smoke
 
 适配器复用 Pi 当前模型和认证信息，不会把 Provider 凭证传给 Python 进程。
 如果桥接或审查流程失败，会 fail-open，继续 Pi 原生 compaction。
+
+## 禁用或卸载
+
+如果之前使用 `-e` 临时加载扩展，之后不再带这个参数即可。通过包安装时执行：
+
+```bash
+pi remove npm:@context-guardian/pi
+# 如果是项目级安装：
+pi remove npm:@context-guardian/pi -l
+```
+
+`pi uninstall` 是别名。移除适配器不会删除项目文件或 Pi 会话，之后的
+`/compact` 会继续使用 Pi 原生 compaction。
 
 兼容范围：Pi `0.82.1`，Node.js `22.19.0+`。
 
