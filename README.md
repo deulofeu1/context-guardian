@@ -4,6 +4,10 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
+> Experimental Alpha: Context Guardian does not guarantee better context
+> compression, summaries, or agent performance. It is an inspection and human-review
+> layer around a host agent's native compaction, not a proven context optimizer.
+
 Context Guardian adds a human review layer before an AI agent compacts its context.
 It does not replace the agent's memory system, summarizer, token manager, or native
 compaction engine. It makes the hidden keep/drop decision inspectable.
@@ -28,6 +32,19 @@ Agents often discard the reason a path was rejected. That can make them repeat t
 same failed approach after compaction. Context Guardian surfaces durable decisions,
 constraints, failed attempts, unfinished work, and transient noise before the host
 agent summarizes the context.
+
+## Experimental status and project scope
+
+This is an experimental Alpha project. The current implementation is a practical
+testbed for human-in-the-loop compaction control, not a claim that every real-world
+conversation will produce a better summary or improve an agent's downstream work.
+The review policy can make false-positive and false-negative decisions, and outcomes
+depend on the host version, model, conversation, provider behavior, and human choices.
+
+Use Context Guardian to explore the design, run repeatable fixtures, and build new
+host adapters or policies on top of the core. Treat the output as advisory guidance
+for the host's native compactor. Keep a rollback path and validate it on your own
+workloads before relying on it for important sessions.
 
 ## Quick start
 
