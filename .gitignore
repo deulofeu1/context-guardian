@@ -12,5 +12,3 @@ node_modules/
 .DS_Store
 .agents/context-guardian.md
 .agents/context-guardian-state.json
-.claude/context-guardian.md
-.claude/context-guardian-state.json

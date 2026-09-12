@@ -1,8 +1,0 @@
-{
-  "name": "context-guardian-claude",
-  "version": "0.1.0",
-  "description": "Human review before Claude Code context compaction",
-  "author": {
-    "name": "Context Guardian Contributors"
-  }
-}

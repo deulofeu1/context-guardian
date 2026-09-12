@@ -9,7 +9,7 @@ def test_capability_matrix_matches_public_adapter_contract():
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["schema_version"] == 1
     integrations = payload["integrations"]
-    assert {item["platform"] for item in integrations} == {"Pi", "Claude Code", "DeepSeek Harness", "Codex"}
+    assert {item["platform"] for item in integrations} == {"Pi", "DeepSeek Harness"}
     for item in integrations:
         capabilities = AdapterCapabilities(
             platform=item["platform"],
@@ -22,10 +22,11 @@ def test_capability_matrix_matches_public_adapter_contract():
         assert capabilities.platform == item["platform"]
 
 
-def test_codex_is_explicitly_assisted_and_claude_documents_persistence_boundary():
+def test_current_adapters_are_native_compaction_integrations():
     path = Path(__file__).parents[1] / "adapters" / "capabilities.json"
     payload = json.loads(path.read_text(encoding="utf-8"))
     by_platform = {item["platform"]: item for item in payload["integrations"]}
-    assert by_platform["Codex"]["level"] == "assisted"
-    assert by_platform["Codex"]["auto_trigger"] is False
-    assert "checkpoint" in by_platform["Claude Code"]["native_compaction_injection"]
+    assert by_platform["Pi"]["level"] == "native"
+    assert by_platform["DeepSeek Harness"]["level"] == "native"
+    assert by_platform["Pi"]["auto_trigger"] is True
+    assert by_platform["DeepSeek Harness"]["auto_trigger"] is True

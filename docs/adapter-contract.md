@@ -27,11 +27,9 @@ the same four behaviors and declare their actual capabilities in
 
 ## Preservation modes
 
-Native integrations pass `CompactionGuidance` into the host's native compactor.
-Assisted integrations write `ContextCheckpoint` to a stable, human-readable file
-because the host does not expose a reliable pre-compaction injection seam.
+The maintained Pi and DeepSeek Harness integrations pass `CompactionGuidance`
+directly into their native compaction path. The Core also exposes
+`ContextCheckpoint` for future assisted integrations whose host does not provide a
+reliable pre-compaction injection seam.
 
-The capability matrix deliberately describes Claude Code's current limitation: its
-`PreCompact` command hook can block a manual compaction, but guidance must be passed
-on the next `/compact` invocation as custom instructions. Automatic compaction writes
-the checkpoint and fails open.
+The capability matrix describes the integrations maintained in the current release.

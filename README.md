@@ -122,21 +122,6 @@ family and is installed as a separate package from the Pi adapter. Web sessions 
 the selected agent preset, so the preset must contain the Context Guardian compaction
 row; the adapter README documents the one-time preset setup.
 
-For Claude Code and Codex, the repository includes marketplace manifests. After the
-repository is published, these commands install the adapters without a user checkout:
-
-```bash
-claude plugin marketplace add deulofeu1/context-guardian
-claude plugin install context-guardian-claude@context-guardian
-
-codex plugin marketplace add deulofeu1/context-guardian
-codex plugin add context-guardian-codex@context-guardian
-```
-
-Claude Code installs the `PreCompact` plugin. Codex installs the manual checkpoint
-skill and remains an assisted integration until a supported pre-compaction hook is
-available.
-
 ## Modes
 
 - Rules mode is local, deterministic, conservative, and the default for the CLI.
@@ -152,17 +137,12 @@ Pi compaction continue normally.
 | Platform | Level | Auto trigger | Host model | Human review | Preservation |
 | --- | --- | --- | --- | --- | --- |
 | Pi | Native | Yes | Pi current model | Pi UI | Direct native `customInstructions` |
-| Claude Code | Native hook | Yes | Rules fallback | Terminal Keep/Drop | Checkpoint, then manual `/compact` instructions |
 | DeepSeek Harness | Native | Yes | Harness current `ctx.llm` route | `userQuestions` UI | Direct native input message |
-| Codex | Assisted | No | Not used by manual checkpoint | Terminal Keep/Drop | `.agents/context-guardian.md` |
 
-Claude Code's current `PreCompact` command-hook contract can block a manual compact,
-but does not expose a channel for injecting Guidance into that same compaction request.
-The adapter therefore persists reviewed state and asks the user to rerun `/compact`
-with the checkpoint path. Codex intentionally remains a manual checkpoint integration
-until an official pre-compaction seam is available. See
+The current release focuses on native compaction integrations. See
 [`docs/adapter-contract.md`](docs/adapter-contract.md) and
-[`adapters/capabilities.json`](adapters/capabilities.json).
+[`adapters/capabilities.json`](adapters/capabilities.json) for the shared contract
+and capability declaration.
 
 ## Python API
 
@@ -202,8 +182,6 @@ npm run test:dsh
 npm run pi-smoke
 npm run pi-fixture-smoke
 npm run dsh-fixture-smoke
-npm run claude-fixture-smoke
-npm run codex-fixture-smoke
 ```
 
 The fast Pi smoke test loads the extension in RPC mode and exercises the Python JSONL
