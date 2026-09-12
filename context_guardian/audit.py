@@ -46,8 +46,21 @@ _LOG_INLINE = re.compile(
     r"\b(?:traceback|npm\s+(?:warn|notice|error)|debug:)\b",
     re.I,
 )
+_MACHINE_PAYLOAD = re.compile(
+    r"^\s*[\[{].*[\]}]\s*$|\"(?:id|type|arguments|payload|request_id|metadata)\"\s*:",
+    re.I | re.S,
+)
+_ATTACHMENT_METADATA = re.compile(
+    r"(?:image|attachment|document|file)\s+(?:metadata|probe|inspection|解包|探测)|"
+    r"(?:mime[- ]type|dimensions?|解包结果|图片元数据|附件元数据)",
+    re.I,
+)
 _PATH_OR_HASH = re.compile(
     r"(?:^|\s)(?:[A-Za-z]:\\|/(?:Users|private|tmp|var|home)/|\.\.?/)[^\s]*|\b[a-f0-9]{32,}\b",
+    re.I,
+)
+_UUID = re.compile(
+    r"\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b",
     re.I,
 )
 _PERMISSION = re.compile(
@@ -95,6 +108,9 @@ def is_execution_noise(content: str) -> bool:
         or _LOG.search(value)
         or _LOG_INLINE.search(value)
         or _PERMISSION.search(value)
+        or _MACHINE_PAYLOAD.search(value)
+        or _ATTACHMENT_METADATA.search(value)
+        or _UUID.search(value)
     ):
         return True
     if _PATH_OR_HASH.search(value) and not _DURABLE.search(value):
@@ -268,7 +284,34 @@ def _tokens(text: str) -> set[str]:
     return {
         token
         for token in result
-        if token not in {"the", "and", "this", "that", "with", "from", "current"}
+        if token
+        not in {
+            "about",
+            "after",
+            "also",
+            "and",
+            "asked",
+            "been",
+            "because",
+            "could",
+            "current",
+            "for",
+            "from",
+            "have",
+            "into",
+            "is",
+            "me",
+            "more",
+            "only",
+            "please",
+            "should",
+            "that",
+            "the",
+            "this",
+            "through",
+            "with",
+            "what",
+        }
     }
 
 
@@ -342,7 +385,10 @@ def _topic_key(content: str, category: CandidateCategory) -> str:
         return "tooling"
     if category in {CandidateCategory.GOAL, CandidateCategory.CONSTRAINT, CandidateCategory.DECISION}:
         return "project-direction"
-    return "side-discussion"
+    # Keep unrelated ambiguous user topics separate while allowing repeated
+    # sentences from the same topic to cluster through their stable signal words.
+    tokens = sorted(_tokens(content))[:2]
+    return f"side-discussion:{'-'.join(tokens) or 'other'}"
 
 
 def _localized(language: str, zh: str, en: str) -> str:
@@ -385,8 +431,25 @@ class PreviewAuditor:
             language=selected_language,
         )
         if self.provider is not None:
-            prompt = self._provider_prompt(audit_input.text, selected_language, max_review_questions)
-            provider_plan = self.provider.generate_structured(prompt, ReviewPlan)
+            inputs = (
+                self.input_builder.build_chunks(
+                    normalized,
+                    preview=preview,
+                    previous_summary=previous_summary,
+                    retained_context=retained_context,
+                    language=selected_language,
+                )
+                if audit_input.truncated
+                else [audit_input]
+            )
+            provider_plans = [
+                self.provider.generate_structured(
+                    self._provider_prompt(item.text, selected_language, max_review_questions),
+                    ReviewPlan,
+                )
+                for item in inputs
+            ]
+            provider_plan = self._merge_provider_plans(provider_plans, selected_language)
             return self._sanitize_provider_plan(provider_plan, selected_language, max_review_questions)
         return self._local_audit(
             normalized,
@@ -412,6 +475,80 @@ Return the ReviewPlan schema exactly; auto_corrections must be incremental sourc
 corrections, not a complete summary.
 
 {text}"""
+
+    @staticmethod
+    def _merge_provider_plans(plans: list[ReviewPlan], language: str) -> ReviewPlan:
+        """Merge independently audited message chunks without exceeding model limits."""
+
+        if not plans:
+            return ReviewPlan(language=language)
+
+        findings: list[AuditFinding] = []
+        finding_keys: set[str] = set()
+        topic_by_key: dict[tuple[str, str], AuditTopic] = {}
+        topic_source_ids: dict[tuple[str, str], set[str]] = defaultdict(set)
+        questions: list[ReviewQuestion] = []
+        question_keys: set[tuple[str, str]] = set()
+        corrections: list[str] = []
+        omissions: list[str] = []
+
+        for plan in plans:
+            for finding in plan.findings:
+                key = f"{finding.category.value}|{finding.summary.casefold()}"
+                if key not in finding_keys and len(findings) < MAX_AUDIT_FINDINGS:
+                    finding_keys.add(key)
+                    findings.append(finding)
+            for topic in plan.audit_topics:
+                key = (topic.title.casefold(), topic.summary.casefold())
+                topic_source_ids[key].add(topic.id)
+                if key not in topic_by_key:
+                    digest = hashlib.sha1((topic.title + topic.summary).encode()).hexdigest()[:12]
+                    topic_by_key[key] = topic.model_copy(
+                        update={"id": f"audit_topic_{digest}"}
+                    )
+            corrections.extend(plan.auto_corrections)
+            omissions.extend(plan.accepted_omissions)
+
+        topics = list(topic_by_key.values())
+        topics.sort(key=lambda item: (-item.impact, item.id))
+        topics = topics[:MAX_AUDIT_TOPICS]
+        topic_key_by_source_id = {
+            source_id: key
+            for key, source_ids in topic_source_ids.items()
+            for source_id in source_ids
+        }
+        kept_topic_ids = {topic.id for topic in topics}
+        for plan in plans:
+            for question in plan.review_questions:
+                key = topic_key_by_source_id.get(question.topic_id)
+                topic = topic_by_key.get(key) if key else None
+                if topic is None or topic.id not in kept_topic_ids:
+                    continue
+                question_key = (topic.id, question.title.casefold())
+                if question_key in question_keys:
+                    continue
+                question_keys.add(question_key)
+                questions.append(question.model_copy(update={"topic_id": topic.id}))
+
+        topic_by_id = {topic.id: topic for topic in topics}
+        questions.sort(
+            key=lambda item: (
+                -PreviewAuditor._review_value(topic_by_id[item.topic_id]),
+                item.id,
+            )
+        )
+        return ReviewPlan(
+            language=language,
+            overview=next((plan.overview for plan in plans if plan.overview), ""),
+            auto_preserve_summary=next(
+                (plan.auto_preserve_summary for plan in plans if plan.auto_preserve_summary), ""
+            ),
+            findings=findings,
+            audit_topics=topics,
+            auto_corrections=_unique(corrections)[:MAX_AUDIT_FINDINGS],
+            accepted_omissions=_unique(omissions)[:MAX_AUDIT_FINDINGS],
+            review_questions=questions[:3],
+        )
 
     def _local_audit(
         self,
@@ -519,6 +656,7 @@ corrections, not a complete summary.
         for key, group in grouped.items():
             high_risk = max(item.importance for item in group)
             digest = hashlib.sha1("|".join(item.id for item in group).encode()).hexdigest()[:12]
+            topic_family = key.split(":", 1)[0]
             title = {
                 "project-direction": _localized(
                     language,
@@ -529,7 +667,7 @@ corrections, not a complete summary.
                     language, "工具与基础概念旁支讨论", "Tooling and fundamentals side discussion"
                 ),
                 "side-discussion": _localized(language, "旁支主题", "Side discussion"),
-            }[key]
+            }[topic_family]
             correction = "；".join(item.suggested_correction for item in group)
             topics.append(
                 AuditTopic(
@@ -572,8 +710,27 @@ corrections, not a complete summary.
                     suggested_correction=summary,
                 )
             )
-        topics.sort(key=lambda item: (-item.impact, item.id))
+        topics.sort(
+            key=lambda item: (
+                0 if item.disposition is AuditDisposition.ASK_USER else 1,
+                -self._review_value(item)
+                if item.disposition is AuditDisposition.ASK_USER
+                else -item.impact,
+                item.id,
+            )
+        )
         return topics
+
+    @staticmethod
+    def _review_value(topic: AuditTopic) -> float:
+        """Rank only uncertain topics by impact, uncertainty, preference, and relevance."""
+
+        if topic.disposition is not AuditDisposition.ASK_USER:
+            return topic.impact
+        preference_factor = 1.0 if topic.requires_user_preference else 0.5
+        uncertainty = max(0.0, 1.0 - topic.confidence)
+        relevance = max(0.1, topic.relevance_to_main_goal)
+        return topic.impact * uncertainty * preference_factor * relevance
 
     @staticmethod
     def _make_questions(topics: list[AuditTopic], language: str, budget: int) -> list[ReviewQuestion]:
@@ -696,7 +853,17 @@ corrections, not a complete summary.
         questions = [
             question
             for question in plan.review_questions
-            if not is_execution_noise(" ".join((question.title, question.question, question.context)))
+            if not is_execution_noise(
+                " ".join(
+                    (
+                        question.title,
+                        question.question,
+                        question.context,
+                        question.why_it_matters,
+                        *(option.label + " " + option.description for option in question.options),
+                    )
+                )
+            )
         ][: max(0, min(3, budget))]
         allowed = {topic.id for topic in topics}
         questions = [question for question in questions if question.topic_id in allowed]

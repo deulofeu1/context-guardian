@@ -3,7 +3,7 @@ import { BasicCompactionEngine } from "@deepseek-ai/dsh-compaction-basic";
 import type { Agent } from "@deepseek-ai/dsh-agent";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import type { ReviewPlan, ReviewQuestion } from "./types.js";
-import { GuardianBridge, normalizeDeepSeekMessages } from "./bridge.js";
+import { GuardianBridge, normalizeDeepSeekMessages, preferredLanguage } from "./bridge.js";
 
 export const name = "context-guardian-deepseek-harness";
 const MAX_REVIEW_QUESTIONS = 3;
@@ -17,6 +17,27 @@ type NativeSummarizeInput = Parameters<NativeSummarize>[0];
 type NativeSummarizeResult = Awaited<ReturnType<NativeSummarize>>;
 
 const bridge = new GuardianBridge();
+type UiLanguage = "zh-CN" | "en";
+type UiMessageKey = "auditUnavailable" | "reviewCancelled" | "revisionUnavailable" | "finalFailed";
+
+const UI_MESSAGES: Record<UiLanguage, Record<UiMessageKey, string>> = {
+  en: {
+    auditUnavailable: "Context Guardian audit unavailable; accepting the successful native preview.",
+    reviewCancelled: "Context Guardian review unavailable; accepting the successful native preview.",
+    revisionUnavailable: "Context Guardian revision unavailable; accepting the successful native preview.",
+    finalFailed: "Context Guardian final compaction failed; accepting the successful native preview.",
+  },
+  "zh-CN": {
+    auditUnavailable: "Context Guardian 审计不可用；接受已经成功生成的原生预览。",
+    reviewCancelled: "Context Guardian 人工审查不可用；接受已经成功生成的原生预览。",
+    revisionUnavailable: "Context Guardian 修正指导不可用；接受已经成功生成的原生预览。",
+    finalFailed: "Context Guardian 最终压缩失败；接受已经成功生成的原生预览。",
+  },
+};
+
+function uiMessage(language: UiLanguage, key: UiMessageKey): string {
+  return UI_MESSAGES[language][key];
+}
 
 function debug(ctx: Context, message: string): void {
   if (process.env.CONTEXT_GUARDIAN_DEBUG === "1") {
@@ -47,12 +68,12 @@ export function needsRevision(plan: ReviewPlan, answers: readonly { action: "kee
   return plan.auto_corrections.length > 0 || answers.some((answer) => answer.action === "keep");
 }
 
-function reviewQuestionsForUi(questions: readonly ReviewQuestion[]) {
-  return questions.slice(0, MAX_REVIEW_QUESTIONS).map((question) => ({
+function reviewQuestionsForUi(plan: ReviewPlan) {
+  return plan.review_questions.slice(0, MAX_REVIEW_QUESTIONS).map((question) => ({
     id: question.id,
     header: question.title,
     question: question.question,
-    detail: `${question.context}\n\n${question.why_it_matters}\n\n${question.options.map((option) => `${option.label}: ${option.description}`).join("\n")}`,
+    detail: `${plan.overview}\n\n${question.context}\n\n${question.why_it_matters}\n\n${question.options.map((option) => `${option.label}: ${option.description}`).join("\n")}`,
     options: question.options.map((option) => ({
       label: option.label,
       description: option.description,
@@ -72,7 +93,7 @@ async function answerReviewQuestions(
 
   try {
     const answer = await interaction.ask({
-      questions: reviewQuestionsForUi(plan.review_questions),
+      questions: reviewQuestionsForUi(plan),
       agent,
       signal,
     }) as { answers: Array<{ id: string; selected: string[]; custom?: string }> };
@@ -93,7 +114,7 @@ async function answerReviewQuestions(
     });
   } catch (error) {
     const code = errorCode(error);
-    debug(ctx, `userQuestions failed with ${code ?? (error instanceof Error ? error.message : String(error))}`);
+    debug(ctx, `userQuestions unavailable; policy fallback ${code ?? "unknown"}`);
     if (code === "NO_PROVIDER") return answersForNoUi(plan);
     throw error;
   }
@@ -144,6 +165,7 @@ export class ContextGuardianCompactionEngine extends BasicCompactionEngine {
     const operationSignal = signal ?? new AbortController().signal;
     const preview = await super.summarize(input, agent, signal);
     const messages = normalizeInput(input);
+    let uiLanguage: UiLanguage = preferredLanguage(messages);
 
     let plan: ReviewPlan;
     try {
@@ -159,43 +181,42 @@ export class ContextGuardianCompactionEngine extends BasicCompactionEngine {
       );
       debug(
         this.ctx,
-        `native preview audited: ${String(plan.findings.length)} finding(s), ${String(plan.review_questions.length)} question(s)`,
+        `preview ready: findings=${String(plan.findings.length)}, topics=${String(plan.audit_topics.length)}, `
+          + `auto_corrections=${String(plan.auto_corrections.length)}, accepted=${String(plan.accepted_omissions.length)}, `
+          + `questions=${String(plan.review_questions.length)}`,
       );
     } catch (error) {
-      this.ctx.logger.warn(
-        `context guardian audit unavailable; accepting native preview: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      this.ctx.logger.warn(uiMessage(uiLanguage, "auditUnavailable"));
       return preview;
     }
+    uiLanguage = plan.language;
 
     let answers;
     try {
       answers = await answerReviewQuestions(this.ctx, agent, plan, operationSignal);
     } catch (error) {
-      this.ctx.logger.warn(
-        `context guardian review cancelled; accepting native preview: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      this.ctx.logger.warn(uiMessage(uiLanguage, "reviewCancelled"));
       return preview;
     }
-    if (!needsRevision(plan, answers)) return preview;
+    if (!needsRevision(plan, answers)) {
+      debug(this.ctx, "native preview reused; final compaction not needed");
+      return preview;
+    }
 
     let guidance;
     try {
       guidance = await bridge.revisionGuidance(this.ctx, agent, plan, answers, operationSignal);
     } catch (error) {
-      this.ctx.logger.warn(
-        `context guardian revision unavailable; accepting native preview: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      this.ctx.logger.warn(uiMessage(uiLanguage, "revisionUnavailable"));
       return preview;
     }
     if (!guidance.text) return preview;
 
     try {
+      debug(this.ctx, "running one guided native final compaction");
       return await super.summarize(nativeInputWithGuidance(input, guidance.text), agent, signal);
     } catch (error) {
-      this.ctx.logger.warn(
-        `context guardian final compaction failed; accepting native preview: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      this.ctx.logger.warn(uiMessage(uiLanguage, "finalFailed"));
       return preview;
     }
   }

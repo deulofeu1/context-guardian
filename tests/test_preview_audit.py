@@ -7,6 +7,7 @@ from context_guardian import (
     ReviewPlan,
     build_revision_guidance,
 )
+from context_guardian.audit import AuditInputBuilder, is_execution_noise
 from context_guardian.models import (
     AuditFinding,
     AuditTopic,
@@ -74,6 +75,82 @@ def test_review_budget_and_noise_are_hard_bounded():
     assert "npm install" not in ui_text
     assert "0123456789abcdef" not in ui_text
     assert "permission boilerplate" not in ui_text
+
+
+def test_audit_topics_can_exceed_question_budget_without_exposing_more_questions():
+    messages = [
+        {"role": "user", "content": "I asked about deployment workflow."},
+        {"role": "user", "content": "I asked about licensing options."},
+        {"role": "user", "content": "I asked about team onboarding."},
+        {"role": "user", "content": "I asked about release announcements."},
+    ]
+    plan = ContextGuardian().audit_preview(messages, preview="", max_review_questions=3)
+    assert len(plan.audit_topics) > 3
+    assert len(plan.review_questions) == 3
+
+
+def test_input_builder_chunks_at_message_boundaries_and_filters_machine_noise():
+    important = "Constraint: preserve the public API.\n" + ("keep this line\n" * 80)
+    messages = [{"id": "important", "role": "user", "content": important}]
+    messages.extend(
+        {"id": f"m-{index}", "role": "user", "content": "routine context " + ("x" * 900)}
+        for index in range(8)
+    )
+    chunks = AuditInputBuilder(max_chars=4_000).build_chunks(messages, preview="native preview")
+    assert len(chunks) > 1
+    assert any("Constraint: preserve the public API." in chunk.text for chunk in chunks)
+    assert "partial" not in chunks[0].text
+    assert is_execution_noise("The image metadata probe found dimensions 100x100.")
+    assert is_execution_noise('{"request_id":"abc","arguments":{}}')
+    assert is_execution_noise("temporary run UUID 123e4567-e89b-12d3-a456-426614174000")
+
+
+class ChunkAuditProvider:
+    def __init__(self):
+        self.calls = 0
+
+    def generate_structured(self, prompt: str, schema: type[ReviewPlan]) -> ReviewPlan:
+        self.calls += 1
+        finding = AuditFinding(
+            id=f"finding-{self.calls}",
+            issue_type="missing",
+            category=CandidateCategory.TODO,
+            summary=f"Chunk {self.calls} contains unfinished work.",
+            why_it_matters="The unfinished work may affect the next step.",
+            suggested_correction=f"Chunk {self.calls} contains unfinished work.",
+            importance=0.8,
+            confidence=0.9,
+        )
+        topic = AuditTopic(
+            id=f"topic-{self.calls}",
+            title=f"Chunk {self.calls}",
+            summary=finding.summary,
+            finding_ids=[finding.id],
+            impact=0.8,
+            confidence=0.9,
+            relevance_to_main_goal=0.8,
+            disposition=AuditDisposition.AUTO_CORRECT,
+            recommended_action="correct",
+            suggested_correction=finding.suggested_correction,
+        )
+        return ReviewPlan(
+            language="en",
+            findings=[finding],
+            audit_topics=[topic],
+            auto_corrections=[finding.suggested_correction],
+        )
+
+
+def test_provider_audit_chunks_large_input_and_merges_findings():
+    provider = ChunkAuditProvider()
+    messages = [
+        {"id": f"large-{index}", "role": "user", "content": f"State {index}: " + ("important context " * 500)}
+        for index in range(14)
+    ]
+    plan = ContextGuardian(provider=provider).audit_preview(messages, preview="native preview")
+    assert provider.calls > 1
+    assert len(plan.findings) == provider.calls
+    assert len(plan.audit_topics) == provider.calls
 
 
 def test_same_side_topic_is_aggregated_and_language_comes_from_users_only():

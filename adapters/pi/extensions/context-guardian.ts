@@ -4,11 +4,41 @@ import {
   type ExtensionContext,
   type SessionBeforeCompactEvent,
 } from "@earendil-works/pi-coding-agent";
-import { GuardianBridge, normalizePiMessages } from "../src/bridge.ts";
+import { GuardianBridge, normalizePiMessages, preferredLanguage } from "../src/bridge.ts";
 import type { ReviewPlan, ReviewQuestion } from "../src/types.ts";
 
 const bridge = new GuardianBridge();
 const MAX_REVIEW_QUESTIONS = 3;
+type UiLanguage = "zh-CN" | "en";
+type UiMessageKey = "auditUnavailable" | "reviewCancelled" | "revisionUnavailable" | "finalFailed" | "guardianUnavailable";
+
+const UI_MESSAGES: Record<UiLanguage, Record<UiMessageKey, string>> = {
+  en: {
+    auditUnavailable: "Context Guardian audit unavailable; using the successful native preview.",
+    reviewCancelled: "Context Guardian review unavailable; using the successful native preview.",
+    revisionUnavailable: "Context Guardian revision unavailable; using the successful native preview.",
+    finalFailed: "Context Guardian final compaction failed; using the successful native preview.",
+    guardianUnavailable: "Context Guardian unavailable; continuing with native compaction.",
+  },
+  "zh-CN": {
+    auditUnavailable: "Context Guardian 审计不可用；将使用已经成功生成的原生预览。",
+    reviewCancelled: "Context Guardian 人工审查不可用；将使用已经成功生成的原生预览。",
+    revisionUnavailable: "Context Guardian 修正指导不可用；将使用已经成功生成的原生预览。",
+    finalFailed: "Context Guardian 最终压缩失败；将使用已经成功生成的原生预览。",
+    guardianUnavailable: "Context Guardian 不可用；继续使用宿主原生压缩。",
+  },
+};
+
+function uiMessage(language: UiLanguage, key: UiMessageKey): string {
+  return UI_MESSAGES[language][key];
+}
+
+function auditNotice(plan: ReviewPlan): string {
+  return plan.language === "zh-CN"
+    ? `${plan.overview} 自动修正：${String(plan.auto_corrections.length)} 项 · 人工问题：${String(plan.review_questions.length)} 个`
+    : `${plan.overview} Auto corrections: ${String(plan.auto_corrections.length)} · `
+      + `Review questions: ${String(plan.review_questions.length)}`;
+}
 
 function configuredReviewBudget(): number {
   const value = Number(process.env.CONTEXT_GUARDIAN_MAX_REVIEW_QUESTIONS ?? MAX_REVIEW_QUESTIONS);
@@ -68,6 +98,12 @@ function retainedContextFromPreparation(preparation: SessionBeforeCompactEvent["
 async function handleBeforeCompact(event: SessionBeforeCompactEvent, ctx: ExtensionContext) {
   if (!ctx.model) return;
 
+  const messages = normalizePiMessages(
+    event.preparation.messagesToSummarize,
+    event.preparation.previousSummary,
+  );
+  let uiLanguage: UiLanguage = preferredLanguage(messages);
+
   try {
     const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model);
     if (!auth.ok) return;
@@ -79,11 +115,6 @@ async function handleBeforeCompact(event: SessionBeforeCompactEvent, ctx: Extens
           ),
         )
       : undefined;
-    const messages = normalizePiMessages(
-      event.preparation.messagesToSummarize,
-      event.preparation.previousSummary,
-    );
-
     // The first native call is the user's preview. It is never committed by this
     // hook; the session manager commits only the result returned below.
     const preview = await compact(
@@ -109,20 +140,15 @@ async function handleBeforeCompact(event: SessionBeforeCompactEvent, ctx: Extens
       );
     } catch (error) {
       if (ctx.hasUI) {
-        ctx.ui.notify(
-          `Context Guardian audit unavailable; using the successful native preview (${error instanceof Error ? error.message : String(error)})`,
-          "warning",
-        );
+        ctx.ui.notify(uiMessage(uiLanguage, "auditUnavailable"), "warning");
       }
       return { compaction: preview };
     }
 
+    uiLanguage = plan.language;
+
     if (ctx.hasUI) {
-      ctx.ui.notify(
-        `${plan.overview} Auto corrections: ${String(plan.auto_corrections.length)} · ` +
-          `Review questions: ${String(plan.review_questions.length)}`,
-        "info",
-      );
+      ctx.ui.notify(auditNotice(plan), "info");
     }
 
     let answers;
@@ -130,10 +156,7 @@ async function handleBeforeCompact(event: SessionBeforeCompactEvent, ctx: Extens
       answers = await answerReviewQuestions(ctx, plan, event.signal);
     } catch (error) {
       if (ctx.hasUI) {
-        ctx.ui.notify(
-          `Context Guardian review cancelled; using the successful native preview (${error instanceof Error ? error.message : String(error)})`,
-          "warning",
-        );
+        ctx.ui.notify(uiMessage(uiLanguage, "reviewCancelled"), "warning");
       }
       return { compaction: preview };
     }
@@ -144,10 +167,7 @@ async function handleBeforeCompact(event: SessionBeforeCompactEvent, ctx: Extens
       guidance = await bridge.revisionGuidance(ctx, plan, answers, event.signal);
     } catch (error) {
       if (ctx.hasUI) {
-        ctx.ui.notify(
-          `Context Guardian revision unavailable; using the successful native preview (${error instanceof Error ? error.message : String(error)})`,
-          "warning",
-        );
+        ctx.ui.notify(uiMessage(uiLanguage, "revisionUnavailable"), "warning");
       }
       return { compaction: preview };
     }
@@ -167,17 +187,13 @@ async function handleBeforeCompact(event: SessionBeforeCompactEvent, ctx: Extens
       return { compaction: finalResult };
     } catch (error) {
       if (ctx.hasUI) {
-        ctx.ui.notify(
-          `Context Guardian final compaction failed; using the successful native preview (${error instanceof Error ? error.message : String(error)})`,
-          "warning",
-        );
+        ctx.ui.notify(uiMessage(uiLanguage, "finalFailed"), "warning");
       }
       return { compaction: preview };
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
     if (ctx.hasUI) {
-      ctx.ui.notify(`Context Guardian unavailable; continuing native compaction (${message})`, "warning");
+      ctx.ui.notify(uiMessage(uiLanguage, "guardianUnavailable"), "warning");
     }
     // If the preview itself failed, returning undefined lets Pi run its normal
     // native path. A successful preview is always preferred over a failed retry.
