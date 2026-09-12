@@ -1,10 +1,13 @@
 """Public Python API for Context Guardian."""
 
+from .adapters import AdapterCapabilities, ContextGuardianAdapter, IntegrationLevel
+from .checkpoint import build_checkpoint
 from .guidance import build_guidance
 from .inspector import ContextGuardian, RuleBasedInspector
 from .models import (
     CandidateCategory,
     CompactionGuidance,
+    ContextCheckpoint,
     ConversationMessage,
     InspectionResult,
     MemoryCandidate,
@@ -22,6 +25,7 @@ __all__ = [
     "ContextGuardian",
     "ConversationMessage",
     "CompactionGuidance",
+    "ContextCheckpoint",
     "HostModelProvider",
     "InspectionResult",
     "MemoryCandidate",
@@ -32,6 +36,10 @@ __all__ = [
     "ReviewPolicy",
     "RuleBasedInspector",
     "build_guidance",
+    "build_checkpoint",
+    "AdapterCapabilities",
+    "ContextGuardianAdapter",
+    "IntegrationLevel",
     "verify_conversation",
     "verify_file",
     "__version__",

@@ -86,7 +86,7 @@ class OpenAIProvider:
         try:
             from openai import OpenAI
         except ImportError as exc:
-            raise ProviderError("install context-guardian[openai] to use OpenAIProvider") from exc
+            raise ProviderError("install context-guardian-core[openai] to use OpenAIProvider") from exc
 
         client = OpenAI(api_key=self.api_key)
         try:

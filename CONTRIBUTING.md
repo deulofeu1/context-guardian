@@ -5,12 +5,22 @@
 3. Run `context-guardian verify examples/conversation.json`.
 4. Run `pytest` and `ruff check .`.
 5. For Pi changes, run `npm run typecheck` and `npm run smoke` in `adapters/pi`.
-6. Before a release, run the interactive `npm run pi-fixture-smoke` check from the
-   repository root and manually review the Keep/Drop flow.
+6. For DeepSeek Harness changes, run `npm run typecheck:dsh`, `npm run test:dsh`,
+   and `npm run dsh-fixture-smoke`.
+7. Before a release, run the interactive fixture checks from the repository root:
+   `npm run pi-fixture-smoke`, `npm run claude-fixture-smoke`, and
+   `npm run codex-fixture-smoke`; manually review every Keep/Drop flow.
 
-The deterministic verifier and RPC smoke test are fast regression checks. The fixture
-smoke test is the important end-to-end validation and is intentionally interactive;
-it is not run in CI.
+The deterministic verifier, RPC smoke test, and CI fixture jobs are fast regression
+checks. The local fixture smoke commands are interactive so a maintainer can verify
+the actual review surface before release. Set `CONTEXT_GUARDIAN_REVIEW_MODE=keep` in
+automation when no terminal is available.
+
+The manual publish workflow lives in `.github/workflows/release.yml`. Python package
+publishing uses PyPI trusted publishing; npm publishing requires the repository
+`NPM_TOKEN` secret. Claude Code and Codex plugins are distributed through the
+marketplace manifests at `.claude-plugin/marketplace.json` and
+`.agents/plugins/marketplace.json`.
 
 Do not add a server, persistent memory database, or replacement summarizer without
 first discussing the project scope.

@@ -10,6 +10,8 @@ def test_fixture_verification_passes():
     assert result["passed"] is True
     assert result["metrics"]["critical_memory_retention"] == 1.0
     assert result["metrics"]["noise_removal"] == 1.0
+    assert result["metrics"]["checkpoint_memory_retention"] == 1.0
+    assert result["checks"]["checkpoint_excludes_noise"] is True
 
 
 def test_verification_accepts_message_arrays():

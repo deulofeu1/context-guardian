@@ -38,9 +38,8 @@ not been published yet. That means the current path is clone/download → instal
 the Python and JavaScript dependencies → run the adapter from the checkout.
 
 The no-checkout installation shown below is the target end-user experience after
-release. The host CLIs remain separate prerequisites. The `context-guardian` name
-also needs to be resolved on PyPI before it can be used safely, because that
-distribution name is currently occupied by an unrelated package.
+release. The host CLIs remain separate prerequisites. The Python distribution is
+named `context-guardian-core`; its installed CLI remains `context-guardian`.
 
 ### Use this repository today
 
@@ -93,7 +92,7 @@ These are the intended commands for end users once the package names are publish
 and the Python distribution name is resolved:
 
 ```bash
-python -m pip install context-guardian
+python -m pip install context-guardian-core
 pi install npm:@context-guardian/pi
 dsh plugin --profile web add context-guardian-deepseek-harness
 ```
@@ -123,15 +122,47 @@ family and is installed as a separate package from the Pi adapter. Web sessions 
 the selected agent preset, so the preset must contain the Context Guardian compaction
 row; the adapter README documents the one-time preset setup.
 
+For Claude Code and Codex, the repository includes marketplace manifests. After the
+repository is published, these commands install the adapters without a user checkout:
+
+```bash
+claude plugin marketplace add deulofeu1/context-guardian
+claude plugin install context-guardian-claude@context-guardian
+
+codex plugin marketplace add deulofeu1/context-guardian
+codex plugin add context-guardian-codex@context-guardian
+```
+
+Claude Code installs the `PreCompact` plugin. Codex installs the manual checkpoint
+skill and remains an assisted integration until a supported pre-compaction hook is
+available.
+
 ## Modes
 
 - Rules mode is local, deterministic, conservative, and the default for the CLI.
 - Pi mode asks the host agent's current model for structured candidates, then uses
   Pi's native compaction helper with the resulting guidance.
-- OpenAI is an optional standalone CLI provider: `pip install '.[openai]'` from the checkout.
+- OpenAI is an optional standalone CLI provider: `pip install 'context-guardian-core[openai]'` after release.
 
 If the bridge, model call, or review UI fails, the adapter fails open and lets native
 Pi compaction continue normally.
+
+## Integrations
+
+| Platform | Level | Auto trigger | Host model | Human review | Preservation |
+| --- | --- | --- | --- | --- | --- |
+| Pi | Native | Yes | Pi current model | Pi UI | Direct native `customInstructions` |
+| Claude Code | Native hook | Yes | Rules fallback | Terminal Keep/Drop | Checkpoint, then manual `/compact` instructions |
+| DeepSeek Harness | Native | Yes | Harness current `ctx.llm` route | `userQuestions` UI | Direct native input message |
+| Codex | Assisted | No | Not used by manual checkpoint | Terminal Keep/Drop | `.agents/context-guardian.md` |
+
+Claude Code's current `PreCompact` command-hook contract can block a manual compact,
+but does not expose a channel for injecting Guidance into that same compaction request.
+The adapter therefore persists reviewed state and asks the user to rerun `/compact`
+with the checkpoint path. Codex intentionally remains a manual checkpoint integration
+until an official pre-compaction seam is available. See
+[`docs/adapter-contract.md`](docs/adapter-contract.md) and
+[`adapters/capabilities.json`](adapters/capabilities.json).
 
 ## Python API
 
@@ -144,6 +175,9 @@ result = guardian.inspect(messages)
 decisions = [{"candidate_id": result.review[0].id, "action": "keep"}]
 guidance = guardian.build_guidance(result.candidates, decisions)
 print(guidance.text)
+
+checkpoint = guardian.build_checkpoint(result.candidates, decisions)
+print(checkpoint.text)
 ```
 
 ## Project boundary
@@ -168,6 +202,8 @@ npm run test:dsh
 npm run pi-smoke
 npm run pi-fixture-smoke
 npm run dsh-fixture-smoke
+npm run claude-fixture-smoke
+npm run codex-fixture-smoke
 ```
 
 The fast Pi smoke test loads the extension in RPC mode and exercises the Python JSONL

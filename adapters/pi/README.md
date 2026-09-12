@@ -18,7 +18,7 @@ npm install
 For the end-user release, the intended commands will be:
 
 ```bash
-pip install context-guardian
+pip install context-guardian-core
 pi install npm:@context-guardian/pi
 ```
 

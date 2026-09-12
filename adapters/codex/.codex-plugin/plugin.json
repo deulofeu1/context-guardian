@@ -1,0 +1,10 @@
+{
+  "name": "context-guardian-codex",
+  "version": "0.1.0",
+  "description": "Create reviewed context checkpoints in Codex when no pre-compaction hook is available.",
+  "author": {
+    "name": "Context Guardian Contributors"
+  },
+  "license": "MIT",
+  "skills": "./skills/"
+}
