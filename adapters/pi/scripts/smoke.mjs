@@ -22,7 +22,8 @@ const pythonCandidates = [
 
 function requestLine(command, args, input, isMatch, timeoutMs = 10_000) {
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(command, args, { cwd: repositoryRoot, stdio: ["pipe", "pipe", "pipe"] });
+    const shell = process.platform === "win32" && /\.(?:cmd|bat)$/i.test(command);
+    const child = spawn(command, args, { cwd: repositoryRoot, shell, stdio: ["pipe", "pipe", "pipe"] });
     let buffer = "";
     let stderr = "";
     let settled = false;
