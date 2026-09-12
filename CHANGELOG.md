@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.2 - 2026-09-12 (Pi adapter)
+
+- Made the Pi Python bridge safe on Windows by preserving the runtime variables
+  required by Python and using the Windows `python` launcher by default.
+- Added structured bridge error categories, a longer configurable timeout, stricter
+  JSONL protocol validation, and Windows CI coverage.
+
 ## 0.1.2 - 2026-09-12 (DeepSeek Harness adapter)
 
 - Made the DeepSeek Harness Python bridge safe on Windows by preserving the runtime

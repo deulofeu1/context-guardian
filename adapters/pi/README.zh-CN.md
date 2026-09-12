@@ -13,12 +13,16 @@ python3 -m pip install context-guardian-core
 pi install npm:@context-guardian/pi
 ```
 
-需要 Pi `0.82.1` 和 Node.js `22.19.0+`。适配器默认使用 `python3` 启动核心
-桥接。如果核心安装在虚拟环境中，请指定绝对路径：
+需要 Pi `0.82.1` 和 Node.js `22.19.0+`。适配器在 macOS/Linux 上默认使用
+`python3`，在 Windows 上默认使用 `python` 启动核心桥接。如果核心安装在虚拟环境中，
+请指定绝对路径：
 
 ```bash
 export CONTEXT_GUARDIAN_PYTHON=/absolute/path/to/venv/bin/python
 ```
+
+桥接默认超时为 120 秒，可以通过 `CONTEXT_GUARDIAN_TIMEOUT_MS` 调低；超过 120 秒的值
+会被限制为 120 秒。
 
 如果要直接试用源码，可以使用 `pi -e` 或仓库中的交互式 fixture。`pi -e` 只对
 当前运行有效，不需要卸载：

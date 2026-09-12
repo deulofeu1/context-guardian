@@ -1,6 +1,6 @@
 {
   "name": "@context-guardian/pi",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Human review before Pi context compaction",
   "type": "module",
   "license": "MIT",
@@ -30,6 +30,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "test": "tsx --test scripts/bridge.test.ts",
     "smoke": "node scripts/smoke.mjs",
     "fixture-smoke": "node scripts/interactive-fixture-smoke.mjs"
   },
@@ -37,6 +38,7 @@
     "@types/node": "^22.0.0",
     "@earendil-works/pi-coding-agent": "0.82.1",
     "@earendil-works/pi-ai": "0.82.1",
-    "typescript": "^5.6.0"
+    "typescript": "^5.6.0",
+    "tsx": "^4.19.2"
   }
 }
