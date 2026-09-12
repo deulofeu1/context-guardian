@@ -10,6 +10,11 @@ The repository publishes:
 - `@context-guardian/pi`
 - `context-guardian-deepseek-harness`
 
+The npm account used for the first publication must own the
+`@context-guardian` scope. If that scope is not already available, create the
+`context-guardian` npm organization and grant the publishing account access, or
+rename the Pi package to a scope that the account owns before publishing.
+
 The GitHub Actions workflow is `.github/workflows/release.yml`. In each npm
 package's settings, add a GitHub Actions trusted publisher with:
 
