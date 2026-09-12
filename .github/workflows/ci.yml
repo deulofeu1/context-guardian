@@ -39,7 +39,12 @@ jobs:
       - run: npm run smoke
 
   deepseek-harness:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      CONTEXT_GUARDIAN_PYTHON: python
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

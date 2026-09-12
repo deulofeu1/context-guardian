@@ -148,7 +148,8 @@ export class ContextGuardianCompactionEngine extends BasicCompactionEngine {
       guidedInput = nativeInputWithGuidance(input, guidance.text);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.ctx.logger.warn(`context guardian unavailable; continuing native compaction: ${message}`);
+      const code = errorCode(error);
+      this.ctx.logger.warn(`context guardian unavailable${code ? ` [${code}]` : ""}; continuing native compaction: ${message}`);
       return super.summarize(input, agent, signal);
     }
     return super.summarize(guidedInput, agent, signal);

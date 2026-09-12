@@ -62,6 +62,22 @@ The adapter does not receive or forward `DEEPSEEK_API_KEY`. Structured inspectio
 If the core is installed in a virtual environment, set
 `CONTEXT_GUARDIAN_PYTHON=/absolute/path/to/venv/bin/python` before starting Harness.
 
+On Windows, the bridge preserves the runtime variables required by Python's networking
+stack while still passing only an explicit minimal environment to the child process. If
+the `python3` command resolves to the Microsoft Store placeholder, set the interpreter
+explicitly in the same PowerShell session used to start Harness:
+
+```powershell
+$env:CONTEXT_GUARDIAN_PYTHON = (Get-Command python).Source
+$env:CONTEXT_GUARDIAN_DEBUG = "1"
+$env:CONTEXT_GUARDIAN_TIMEOUT_MS = "120000"
+dsh --profile web
+```
+
+The bridge timeout defaults to 120 seconds and can be lowered with
+`CONTEXT_GUARDIAN_TIMEOUT_MS` (up to 120 seconds). With debug enabled, the adapter logs
+when it loads and reports the number of inspection candidates and review candidates.
+
 Start the web profile and use a sufficiently long session or `/compact`:
 
 ```bash

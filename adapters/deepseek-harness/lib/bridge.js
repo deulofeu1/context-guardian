@@ -3,24 +3,36 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { generateStructuredWithHost } from "./host-model.js";
 const PROTOCOL_VERSION = 1;
-const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_TIMEOUT_MS = 120_000;
+const MAX_TIMEOUT_MS = 120_000;
+const BASE_ENVIRONMENT_NAMES = ["PATH", "LANG", "LC_ALL", "TMPDIR", "TMP", "TEMP"];
+const WINDOWS_ENVIRONMENT_NAMES = ["SystemRoot", "windir"];
 export class GuardianBridgeError extends Error {
+    code;
+    constructor(message, code) {
+        super(message);
+        this.code = code;
+        this.name = "GuardianBridgeError";
+    }
 }
-function pythonCommand() {
-    return process.env.CONTEXT_GUARDIAN_PYTHON || "python3";
+export function pythonCommand(source = process.env, platform = process.platform) {
+    return source.CONTEXT_GUARDIAN_PYTHON || (platform === "win32" ? "python" : "python3");
 }
 function timeoutMs() {
     const value = Number(process.env.CONTEXT_GUARDIAN_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS);
-    return Number.isFinite(value) && value > 0 ? Math.min(Math.floor(value), 120_000) : DEFAULT_TIMEOUT_MS;
+    return Number.isFinite(value) && value > 0 ? Math.min(Math.floor(value), MAX_TIMEOUT_MS) : DEFAULT_TIMEOUT_MS;
 }
-function pythonEnvironment() {
+export function pythonEnvironment(source = process.env, platform = process.platform) {
     const environment = {};
-    for (const name of ["PATH", "LANG", "LC_ALL", "TMPDIR", "TMP", "TEMP"]) {
-        const value = process.env[name];
+    const names = platform === "win32"
+        ? [...WINDOWS_ENVIRONMENT_NAMES, ...BASE_ENVIRONMENT_NAMES]
+        : BASE_ENVIRONMENT_NAMES;
+    for (const name of names) {
+        const value = source[name];
         if (value !== undefined)
             environment[name] = value;
     }
-    const pythonPath = process.env.CONTEXT_GUARDIAN_PYTHONPATH;
+    const pythonPath = source.CONTEXT_GUARDIAN_PYTHONPATH;
     if (pythonPath !== undefined)
         environment.PYTHONPATH = pythonPath;
     return environment;
@@ -73,7 +85,8 @@ export class GuardianBridge {
         return result;
     }
     async request(ctx, agent, operation, body, signal) {
-        const child = spawn(pythonCommand(), ["-m", "context_guardian", "bridge", "--stdio"], {
+        const command = pythonCommand();
+        const child = spawn(command, ["-m", "context_guardian", "bridge", "--stdio"], {
             cwd: agent.session.header.cwd ?? process.cwd(),
             shell: false,
             env: pythonEnvironment(),
@@ -82,10 +95,17 @@ export class GuardianBridge {
         const requestId = randomUUID();
         const readline = createInterface({ input: child.stdout });
         let stderr = "";
+        let childError;
+        let timedOut = false;
+        child.once("error", (error) => { childError = error; });
         child.stderr.on("data", (chunk) => { stderr = `${stderr}${String(chunk)}`.slice(-4000); });
         const abort = () => child.kill("SIGTERM");
         signal.addEventListener("abort", abort, { once: true });
-        const timer = setTimeout(() => child.kill("SIGTERM"), timeoutMs());
+        const limit = timeoutMs();
+        const timer = setTimeout(() => {
+            timedOut = true;
+            child.kill("SIGTERM");
+        }, limit);
         try {
             child.stdin.write(JSON.stringify({
                 protocol_version: PROTOCOL_VERSION,
@@ -102,16 +122,17 @@ export class GuardianBridge {
                     frame = JSON.parse(line);
                 }
                 catch {
-                    throw new GuardianBridgeError("Context Guardian returned invalid JSON");
+                    throw new GuardianBridgeError("Context Guardian returned invalid JSON", "protocol");
                 }
                 if (frame.protocol_version !== PROTOCOL_VERSION) {
-                    throw new GuardianBridgeError("Context Guardian returned an unsupported protocol version");
+                    throw new GuardianBridgeError("Context Guardian returned an unsupported protocol version", "protocol");
                 }
-                if (frame.type === "error")
-                    throw new GuardianBridgeError(frame.error ?? "Context Guardian protocol error");
+                if (frame.type === "error") {
+                    throw new GuardianBridgeError(frame.error ?? "Context Guardian protocol error", "protocol");
+                }
                 if (frame.type === "provider_request") {
                     if (!frame.request_id || !frame.prompt || !frame.schema) {
-                        throw new GuardianBridgeError("Context Guardian provider request is malformed");
+                        throw new GuardianBridgeError("Context Guardian provider request is malformed", "protocol");
                     }
                     try {
                         const data = await generateStructuredWithHost(ctx, agent, frame.prompt, frame.schema, signal);
@@ -135,13 +156,20 @@ export class GuardianBridge {
                     continue;
                 }
                 if (frame.type !== "result" || frame.request_id !== requestId) {
-                    throw new GuardianBridgeError("Context Guardian returned an unrelated response");
+                    throw new GuardianBridgeError("Context Guardian returned an unrelated response", "protocol");
                 }
-                if (!frame.ok)
-                    throw new GuardianBridgeError(frame.error ?? "Context Guardian request failed");
+                if (!frame.ok) {
+                    throw new GuardianBridgeError(frame.error ?? "Context Guardian request failed", "protocol");
+                }
                 return frame.result;
             }
-            throw new GuardianBridgeError(stderr || "Context Guardian process exited without a result");
+            if (childError) {
+                throw new GuardianBridgeError(`Context Guardian failed to start ${JSON.stringify(command)}: ${childError.message}`, "spawn");
+            }
+            if (timedOut) {
+                throw new GuardianBridgeError(`Context Guardian timed out after ${String(limit)} ms`, "timeout");
+            }
+            throw new GuardianBridgeError(stderr || "Context Guardian process exited without a result", "process_exit");
         }
         finally {
             clearTimeout(timer);

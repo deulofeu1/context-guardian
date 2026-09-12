@@ -65,6 +65,20 @@ export CONTEXT_GUARDIAN_PYTHON=/absolute/path/to/python
 如果核心安装在虚拟环境中，启动 Harness 前设置
 `CONTEXT_GUARDIAN_PYTHON=/absolute/path/to/venv/bin/python`。
 
+在 Windows 上，bridge 会在保持最小子进程环境的同时传递 Python 网络栈所需的运行时变量。
+如果 `python3` 解析到了 Microsoft Store 占位符，请在启动 Harness 的同一个 PowerShell
+会话中显式指定解释器：
+
+```powershell
+$env:CONTEXT_GUARDIAN_PYTHON = (Get-Command python).Source
+$env:CONTEXT_GUARDIAN_DEBUG = "1"
+$env:CONTEXT_GUARDIAN_TIMEOUT_MS = "120000"
+dsh --profile web
+```
+
+bridge 默认超时为 120 秒，也可以用 `CONTEXT_GUARDIAN_TIMEOUT_MS` 调低（上限为 120 秒）。
+启用 debug 后，适配器会记录已加载，并报告检查候选和需要人工审查的候选数量。
+
 ## 交互式验证
 
 启动 Web profile：

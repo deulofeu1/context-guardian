@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
-import { GuardianBridge, normalizeDeepSeekMessages } from "../lib/bridge.js";
+import { GuardianBridge, normalizeDeepSeekMessages, pythonCommand, pythonEnvironment } from "../lib/bridge.js";
 import { ContextGuardianCompactionEngine } from "../lib/index.js";
 
 const repositoryRoot = resolve(new URL("../../../", import.meta.url).pathname);
@@ -10,9 +11,17 @@ const pythonCandidates = [
   process.env.CONTEXT_GUARDIAN_PYTHON,
   resolve(repositoryRoot, ".venv313/bin/python"),
   resolve(repositoryRoot, ".venv/bin/python"),
-  "python3",
+  process.platform === "win32" ? "python" : "python3",
 ].filter((value, index, all) => value !== undefined && all.indexOf(value) === index);
-const python = pythonCandidates.find((value) => value === "python3" || existsSync(value));
+const python = pythonCandidates.find((value) => {
+  if (value !== "python" && value !== "python3" && !existsSync(value)) return false;
+  const probe = spawnSync(value, ["-c", "import context_guardian"], {
+    cwd: repositoryRoot,
+    env: { ...process.env, PYTHONPATH: repositoryRoot },
+    stdio: "ignore",
+  });
+  return probe.status === 0;
+});
 
 function fakeContext() {
   const calls = [];
@@ -72,6 +81,50 @@ test("DeepSeek message normalization keeps stable ids and tool errors", () => {
   assert.equal(messages[0].id, "m1");
   assert.equal(messages[1].role, "tool");
   assert.equal(messages[1].is_error, true);
+});
+
+test("Python bridge keeps the minimal environment and Windows runtime variables", () => {
+  const environment = pythonEnvironment({
+    PATH: "C:\\Python;C:\\Windows",
+    SystemRoot: "C:\\Windows",
+    windir: "C:\\Windows",
+    TEMP: "C:\\Temp",
+    CONTEXT_GUARDIAN_PYTHONPATH: "C:\\ContextGuardian",
+    DEEPSEEK_API_KEY: "must-not-cross-process-boundary",
+  }, "win32");
+
+  assert.equal(environment.PATH, "C:\\Python;C:\\Windows");
+  assert.equal(environment.SystemRoot, "C:\\Windows");
+  assert.equal(environment.windir, "C:\\Windows");
+  assert.equal(environment.TEMP, "C:\\Temp");
+  assert.equal(environment.PYTHONPATH, "C:\\ContextGuardian");
+  assert.equal(environment.DEEPSEEK_API_KEY, undefined);
+});
+
+test("Python bridge uses the Windows launcher unless an interpreter is configured", () => {
+  assert.equal(pythonCommand({}, "win32"), "python");
+  assert.equal(pythonCommand({}, "linux"), "python3");
+  assert.equal(pythonCommand({ CONTEXT_GUARDIAN_PYTHON: "D:\\Python\\python.exe" }, "win32"), "D:\\Python\\python.exe");
+});
+
+test("Python bridge does not add Windows-only variables on other platforms", () => {
+  const environment = pythonEnvironment({ SystemRoot: "C:\\Windows", windir: "C:\\Windows" }, "linux");
+  assert.equal(environment.SystemRoot, undefined);
+  assert.equal(environment.windir, undefined);
+});
+
+test("DeepSeek bridge classifies interpreter startup failures", async () => {
+  const previousPython = process.env.CONTEXT_GUARDIAN_PYTHON;
+  process.env.CONTEXT_GUARDIAN_PYTHON = "context-guardian-python-does-not-exist";
+  try {
+    await assert.rejects(
+      () => new GuardianBridge().inspect(fakeContext(), fakeAgent(), [], new AbortController().signal),
+      (error) => error?.code === "spawn" && /failed to start/.test(error.message),
+    );
+  } finally {
+    if (previousPython === undefined) delete process.env.CONTEXT_GUARDIAN_PYTHON;
+    else process.env.CONTEXT_GUARDIAN_PYTHON = previousPython;
+  }
 });
 
 test("DeepSeek bridge performs host-provider inspection and local guidance", { skip: !python }, async () => {
