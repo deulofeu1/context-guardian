@@ -279,6 +279,86 @@ async function main() {
       },
     ],
   };
+  const nativePreview = "The project goal is to implement OAuth without changing the public API.\nPostgreSQL is the final database choice.\nThe existing API compatibility requirement remains.";
+  const auditPlan = {
+    language: "en",
+    overview: "The native preview is ready. Two explicit corrections were found; one side topic needs your judgment.",
+    auto_preserve_summary: "The goal, compatibility constraint, and PostgreSQL decision are already present.",
+    findings: [
+      {
+        id: "finding-sqlite",
+        issue_type: "missing",
+        category: "failed_attempt",
+        summary: "SQLite was abandoned because concurrent writes caused locking problems.",
+        why_it_matters: "This prevents repeating a rejected database path.",
+        suggested_correction: "SQLite was abandoned because concurrent writes caused locking problems.",
+        importance: 0.9,
+        confidence: 0.95,
+        source_message_ids: ["fixture-sqlite"],
+        evidence_snippets: ["SQLite was abandoned because concurrent writes caused locking problems."],
+      },
+      {
+        id: "finding-auth",
+        issue_type: "missing",
+        category: "todo",
+        summary: "auth.py is still incomplete and needs the OAuth callback implementation.",
+        why_it_matters: "It is the next unfinished implementation step.",
+        suggested_correction: "auth.py is still incomplete and needs the OAuth callback implementation.",
+        importance: 0.9,
+        confidence: 0.95,
+        source_message_ids: ["fixture-auth"],
+        evidence_snippets: ["auth.py remains incomplete."],
+      },
+    ],
+    audit_topics: [
+      {
+        id: "topic-corrections",
+        title: "Missing project state",
+        summary: "The rejected SQLite path and unfinished auth.py work are missing from the Preview.",
+        finding_ids: ["finding-sqlite", "finding-auth"],
+        impact: 0.95,
+        confidence: 0.95,
+        relevance_to_main_goal: 0.95,
+        requires_user_preference: false,
+        disposition: "auto_correct",
+        recommended_action: "correct",
+        suggested_correction: "SQLite was abandoned because concurrent writes caused locking problems. auth.py is still incomplete and needs the OAuth callback implementation.",
+      },
+      {
+        id: "topic-npm",
+        title: "npm fundamentals side discussion",
+        summary: "You discussed the basic purpose of npm during the project.",
+        finding_ids: [],
+        impact: 0.35,
+        confidence: 0.72,
+        relevance_to_main_goal: 0.2,
+        requires_user_preference: true,
+        disposition: "ask_user",
+        recommended_action: "drop",
+        suggested_correction: "The npm discussion was a side topic; preserve only its key conclusion if requested.",
+      },
+    ],
+    auto_corrections: [
+      "SQLite was abandoned because concurrent writes caused locking problems.",
+      "auth.py is still incomplete and needs the OAuth callback implementation.",
+    ],
+    accepted_omissions: ["Transient tool output, logs, paths, hashes, and resolved errors."],
+    review_questions: [
+      {
+        id: "question-npm",
+        topic_id: "topic-npm",
+        title: "npm fundamentals side discussion",
+        question: "Should the compaction specially preserve this npm side discussion?",
+        context: "You asked about the basic purpose of npm during the project.",
+        why_it_matters: "It is weakly related to the current implementation task.",
+        recommendation: "drop",
+        options: [
+          { id: "keep", label: "Keep key conclusion", description: "Preserve the topic's key conclusion." },
+          { id: "drop", label: "Accept preview", description: "Do not specially preserve it." },
+        ],
+      },
+    ],
+  };
   await writeFile(fixturePath, JSON.stringify({
     version: 3,
     isSeeded: false,
@@ -294,8 +374,17 @@ async function main() {
       kind: "chunks",
       chunks: [
         { type: "block-start", index: 0, blockType: "text" },
-        { type: "text-delta", index: 0, text: JSON.stringify(inspectionResult) },
-        { type: "block-end", index: 0, block: { type: "text", text: JSON.stringify(inspectionResult) } },
+        { type: "text-delta", index: 0, text: nativePreview },
+        { type: "block-end", index: 0, block: { type: "text", text: nativePreview } },
+        { type: "finish", reason: { kind: "stop" } },
+      ],
+    },
+    {
+      kind: "chunks",
+      chunks: [
+        { type: "block-start", index: 0, blockType: "text" },
+        { type: "text-delta", index: 0, text: JSON.stringify(auditPlan) },
+        { type: "block-end", index: 0, block: { type: "text", text: JSON.stringify(auditPlan) } },
         { type: "finish", reason: { kind: "stop" } },
       ],
     },
@@ -368,9 +457,10 @@ async function main() {
 
     console.log("");
     console.log("DeepSeek Harness Context Guardian fixture is ready.");
-    console.log("Open the printed Web URL, select the seeded session, enter /compact, and choose Keep/Drop.");
-    console.log("Expected Keep: goal, API constraint, PostgreSQL, SQLite failure, auth.py TODO.");
-    console.log("Expected Drop: grep/npm output and the resolved temporary error.");
+    console.log("Open the printed Web URL, select the seeded session, enter /compact, and answer at most three topic questions.");
+    console.log("Expected automatic corrections: SQLite failure reason and the incomplete auth.py TODO.");
+    console.log("Expected topic question: npm fundamentals side discussion; execution noise stays out of the UI.");
+    console.log("Expected final result: goal, API constraint, PostgreSQL, selected corrections, and no raw logs.");
     console.log("Exit the Web process with Ctrl-C when finished.");
     console.log("");
 

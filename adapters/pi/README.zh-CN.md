@@ -2,7 +2,8 @@
 
 [English](README.md) · 简体中文
 
-Context Guardian 的 Pi 适配器，在 Pi 原生上下文压缩前增加候选记忆审查。
+Context Guardian 的 Pi 适配器，审计 Pi 原生 compaction Preview，并在提交前最多
+询问 3 个主题问题。
 
 ## 安装
 
@@ -37,8 +38,19 @@ pi -e /absolute/path/to/ContextGuardian/adapters/pi/extensions/context-guardian.
 npm run pi-fixture-smoke
 ```
 
-适配器复用 Pi 当前模型和认证信息，不会把 Provider 凭证传给 Python 进程。
-如果桥接或审查流程失败，会 fail-open，继续 Pi 原生 compaction。
+适配器复用 Pi 当前模型和认证信息，不会把 Provider 凭证传给 Python 进程。流程是：
+
+```text
+Pi 原生 Preview → Context Guardian 审计 → 自动修正 / 最多 3 个主题问题
+→ 增量指导 → Pi 原生 compaction 提交
+```
+
+Preview 已经准确时直接返回，不再进行第二次原生调用。Preview 成功后，如果审计、
+UI 或带指导的重试失败，则返回这个 Preview；第一次原生调用失败时才交回 Pi 原生
+fallback。这是实验性能力，不保证一定改善摘要或 Agent 表现。
+
+可用 `CONTEXT_GUARDIAN_MAX_REVIEW_QUESTIONS=0..3` 设置硬上限；设为 0 表示不弹窗，
+对未决主题采用保守处理。
 
 ## 禁用或卸载
 
@@ -64,9 +76,9 @@ npm install
 npm run pi-smoke
 ```
 
-完整 fixture 会创建一段预置的长对话，打开 Pi UI，并让你手动选择不确定候选
-的 Keep/Drop；不需要先进行很长的真实对话。Pi 需要已经登录，因为适配器会
-复用当前宿主模型。
+完整 fixture 会创建一段预置的长对话，打开 Pi UI，并让你手动选择不超过 3 个主题
+的 Keep/Drop；不需要先进行很长的真实对话。它会验证原生 Preview、模型审计、UI、
+增量指导和最终原生 compaction。Pi 需要已经登录，因为适配器会复用当前宿主模型。
 
 ## 本地开发
 

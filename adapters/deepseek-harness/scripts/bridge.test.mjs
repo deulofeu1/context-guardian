@@ -3,8 +3,8 @@ import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
-import { GuardianBridge, normalizeDeepSeekMessages, pythonCommand, pythonEnvironment } from "../lib/bridge.js";
-import { ContextGuardianCompactionEngine } from "../lib/index.js";
+import { GuardianBridge, normalizeDeepSeekMessages, preferredLanguage, pythonCommand, pythonEnvironment } from "../lib/bridge.js";
+import { ContextGuardianCompactionEngine, answersForNoUi, needsRevision } from "../lib/index.js";
 
 const repositoryRoot = resolve(new URL("../../../", import.meta.url).pathname);
 const pythonCandidates = [
@@ -81,6 +81,26 @@ test("DeepSeek message normalization keeps stable ids and tool errors", () => {
   assert.equal(messages[0].id, "m1");
   assert.equal(messages[1].role, "tool");
   assert.equal(messages[1].is_error, true);
+});
+
+test("DeepSeek bridge detects language from user messages only", () => {
+  assert.equal(preferredLanguage([
+    { role: "assistant", content: "中文 assistant text", id: "a1" },
+    { role: "user", content: "请保留当前目标和约束", id: "u1" },
+  ]), "zh-CN");
+  assert.equal(preferredLanguage([
+    { role: "assistant", content: "中文输出", id: "a2" },
+    { role: "user", content: "Keep the API compatible", id: "u2" },
+  ]), "en");
+});
+
+test("DeepSeek no-UI resolution follows recommendations and preserves corrections", () => {
+  const plan = {
+    auto_corrections: ["auth.py is incomplete."],
+    review_questions: [{ id: "q1", topic_id: "t1", recommendation: "keep" }],
+  };
+  assert.deepEqual(answersForNoUi(plan), [{ question_id: "q1", topic_id: "t1", action: "keep" }]);
+  assert.equal(needsRevision(plan, [{ action: "drop" }]), true);
 });
 
 test("Python bridge keeps the minimal environment and Windows runtime variables", () => {

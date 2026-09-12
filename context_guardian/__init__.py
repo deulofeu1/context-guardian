@@ -1,10 +1,15 @@
 """Public Python API for Context Guardian."""
 
 from .adapters import AdapterCapabilities, ContextGuardianAdapter, IntegrationLevel
+from .audit import AuditInput, AuditInputBuilder, detect_user_language, is_execution_noise
 from .checkpoint import build_checkpoint
-from .guidance import build_guidance
+from .guidance import build_guidance, build_revision_guidance
 from .inspector import ContextGuardian, RuleBasedInspector
 from .models import (
+    AuditDisposition,
+    AuditFinding,
+    AuditIssueType,
+    AuditTopic,
     CandidateCategory,
     CompactionGuidance,
     ContextCheckpoint,
@@ -13,15 +18,24 @@ from .models import (
     MemoryCandidate,
     ReviewAction,
     ReviewDecision,
+    ReviewOption,
+    ReviewPlan,
+    ReviewQuestion,
 )
 from .policy import ReviewPolicy
 from .providers import HostModelProvider, ModelProvider, OpenAIProvider
 from .verification import verify_conversation, verify_file
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "CandidateCategory",
+    "AuditDisposition",
+    "AuditFinding",
+    "AuditInput",
+    "AuditInputBuilder",
+    "AuditIssueType",
+    "AuditTopic",
     "ContextGuardian",
     "ConversationMessage",
     "CompactionGuidance",
@@ -33,10 +47,16 @@ __all__ = [
     "OpenAIProvider",
     "ReviewAction",
     "ReviewDecision",
+    "ReviewOption",
+    "ReviewPlan",
+    "ReviewQuestion",
     "ReviewPolicy",
     "RuleBasedInspector",
     "build_guidance",
+    "build_revision_guidance",
     "build_checkpoint",
+    "detect_user_language",
+    "is_execution_noise",
     "AdapterCapabilities",
     "ContextGuardianAdapter",
     "IntegrationLevel",

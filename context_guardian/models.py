@@ -29,6 +29,19 @@ class ReviewAction(StrEnum):
     REVIEW = "review"
 
 
+class AuditIssueType(StrEnum):
+    MISSING = "missing"
+    INCORRECT = "incorrect"
+    STALE = "stale"
+    AMBIGUOUS = "ambiguous"
+
+
+class AuditDisposition(StrEnum):
+    AUTO_CORRECT = "auto_correct"
+    ACCEPT_PREVIEW = "accept_preview"
+    ASK_USER = "ask_user"
+
+
 class ConversationMessage(BaseModel):
     """A minimal message shape that adapters can normalize into."""
 
@@ -77,11 +90,114 @@ class ReviewDecision(BaseModel):
     action: Literal["keep", "drop"]
 
 
+class ReviewTopicDecision(BaseModel):
+    """A user's decision about one bounded, topic-level review question."""
+
+    topic_id: str
+    action: Literal["keep", "drop"]
+
+
+class ReviewTopic(BaseModel):
+    """A human-readable group of atomic candidates shown as one question."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    title: str = Field(min_length=1)
+    summary: str = Field(min_length=1)
+    why_it_matters: str = Field(min_length=1)
+    recommendation: Literal["keep", "drop"]
+    candidate_ids: list[str] = Field(min_length=1)
+    evidence_snippets: list[str] = Field(default_factory=list, max_length=3)
+
+
+class AuditFinding(BaseModel):
+    """A source-backed discrepancy found while auditing a native preview."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    issue_type: AuditIssueType
+    category: CandidateCategory
+    summary: str = Field(min_length=1)
+    why_it_matters: str = Field(min_length=1)
+    suggested_correction: str = Field(min_length=1)
+    importance: float = Field(ge=0, le=1)
+    confidence: float = Field(ge=0, le=1)
+    source_message_ids: list[str] = Field(default_factory=list)
+    evidence_snippets: list[str] = Field(default_factory=list, max_length=2)
+
+
+class AuditTopic(BaseModel):
+    """A semantic group of findings used for automatic resolution or UI review."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    title: str = Field(min_length=1)
+    summary: str = Field(min_length=1)
+    finding_ids: list[str] = Field(default_factory=list, max_length=20)
+    impact: float = Field(ge=0, le=1)
+    confidence: float = Field(ge=0, le=1)
+    relevance_to_main_goal: float = Field(ge=0, le=1)
+    requires_user_preference: bool = False
+    disposition: AuditDisposition
+    recommended_action: Literal["keep", "drop", "correct", "accept_preview"] = "accept_preview"
+    suggested_correction: str | None = None
+
+
+class ReviewOption(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: Literal["keep", "drop"]
+    label: str = Field(min_length=1)
+    description: str = Field(min_length=1)
+
+
+class ReviewQuestion(BaseModel):
+    """One bounded, topic-level question shown by a host adapter."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    topic_id: str
+    title: str = Field(min_length=1)
+    question: str = Field(min_length=1)
+    context: str = Field(min_length=1)
+    why_it_matters: str = Field(min_length=1)
+    recommendation: Literal["keep", "drop"]
+    options: list[ReviewOption] = Field(min_length=2, max_length=2)
+
+
+class ReviewPlan(BaseModel):
+    """Preview audit result and the bounded review surface for host adapters."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    language: Literal["zh-CN", "en"] = "en"
+    overview: str = ""
+    auto_preserve_summary: str = ""
+    findings: list[AuditFinding] = Field(default_factory=list, max_length=20)
+    audit_topics: list[AuditTopic] = Field(default_factory=list, max_length=10)
+    auto_corrections: list[str] = Field(default_factory=list, max_length=20)
+    accepted_omissions: list[str] = Field(default_factory=list, max_length=20)
+    review_questions: list[ReviewQuestion] = Field(default_factory=list, max_length=3)
+    # Kept for compatibility with the 0.1 topic planner. Maintained adapters use
+    # audit_topics/review_questions instead.
+    review_topics: list[ReviewTopic] = Field(default_factory=list, max_length=3)
+
+    @field_validator("language", mode="before")
+    @classmethod
+    def normalize_language(cls, value: Any) -> Any:
+        return "zh-CN" if value == "zh" else value
+
+
 class InspectionResult(BaseModel):
     candidates: list[MemoryCandidate] = Field(default_factory=list)
     auto_keep: list[MemoryCandidate] = Field(default_factory=list)
     auto_drop: list[MemoryCandidate] = Field(default_factory=list)
     review: list[MemoryCandidate] = Field(default_factory=list)
+    review_plan: ReviewPlan = Field(default_factory=ReviewPlan)
     mode: Literal["rules", "provider"] = "rules"
     policy_version: str = "1"
 
@@ -92,12 +208,14 @@ class InspectionResult(BaseModel):
         *,
         mode: Literal["rules", "provider"],
         policy_version: str,
+        review_plan: ReviewPlan | None = None,
     ) -> InspectionResult:
         return cls(
             candidates=candidates,
             auto_keep=[c for c in candidates if c.suggested_action is ReviewAction.KEEP],
             auto_drop=[c for c in candidates if c.suggested_action is ReviewAction.DROP],
             review=[c for c in candidates if c.suggested_action is ReviewAction.REVIEW],
+            review_plan=review_plan or ReviewPlan(),
             mode=mode,
             policy_version=policy_version,
         )

@@ -71,6 +71,15 @@ export function normalizeDeepSeekMessages(_system, messages) {
     }
     return result;
 }
+export function preferredLanguage(messages) {
+    const userText = messages
+        .filter((message) => message.role === "user")
+        .map((message) => message.content)
+        .join(" ");
+    const chinese = (userText.match(/[\u4e00-\u9fff]/g) ?? []).length;
+    const latin = (userText.match(/[A-Za-z]/g) ?? []).length;
+    return chinese > latin ? "zh-CN" : "en";
+}
 export class GuardianBridge {
     async inspect(ctx, agent, messages, signal) {
         const result = await this.request(ctx, agent, "inspect", { messages, provider: "host" }, signal);
@@ -81,6 +90,25 @@ export class GuardianBridge {
             candidates,
             decisions,
             provider: "rules",
+        }, signal);
+        return result;
+    }
+    async auditPreview(ctx, agent, messages, preview, previousSummary, retainedContext, signal, maxReviewQuestions = 3) {
+        const result = await this.request(ctx, agent, "audit_preview", {
+            messages,
+            preview,
+            previous_summary: previousSummary,
+            retained_context: retainedContext,
+            max_review_questions: maxReviewQuestions,
+            language: preferredLanguage(messages),
+            provider: "host",
+        }, signal);
+        return result;
+    }
+    async revisionGuidance(ctx, agent, reviewPlan, answers, signal) {
+        const result = await this.request(ctx, agent, "revision_guidance", {
+            review_plan: reviewPlan,
+            answers,
         }, signal);
         return result;
     }

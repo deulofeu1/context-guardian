@@ -17,6 +17,7 @@ from .models import (
     MemoryCandidate,
     ReviewAction,
     ReviewDecision,
+    ReviewPlan,
 )
 from .policy import ReviewPolicy
 from .providers import ModelProvider, ProviderError
@@ -199,6 +200,87 @@ class ContextGuardian:
             return InspectionResult.from_candidates(
                 candidates, mode="rules", policy_version=self.policy.version
             )
+
+    def audit_preview(
+        self,
+        messages: Iterable[ConversationMessage | dict],
+        *,
+        preview: str,
+        previous_summary: str = "",
+        retained_context: str = "",
+        language: str | None = None,
+        max_review_questions: int | None = None,
+    ) -> ReviewPlan:
+        """Audit a host-native preview without generating a replacement summary.
+
+        A configured provider receives a bounded, source-backed audit prompt. The
+        local path uses conservative rules and is intentionally usable without an
+        API key, which is also the adapter fail-open fallback.
+        """
+        from .audit import PreviewAuditor
+        from .review import configured_max_review_questions
+
+        budget = configured_max_review_questions(max_review_questions)
+        return PreviewAuditor(
+            policy=self.policy,
+            rule_inspector=self.rule_inspector,
+            provider=self.provider,
+        ).audit(
+            messages,
+            preview=preview,
+            previous_summary=previous_summary,
+            retained_context=retained_context,
+            language=language,
+            max_review_questions=budget,
+        )
+
+    def audit_preview_with_fallback(
+        self,
+        messages: Iterable[ConversationMessage | dict],
+        *,
+        preview: str,
+        previous_summary: str = "",
+        retained_context: str = "",
+        language: str | None = None,
+        max_review_questions: int | None = None,
+    ) -> ReviewPlan:
+        """Run preview audit and degrade to deterministic local rules on failure."""
+        normalized = [ConversationMessage.model_validate(message) for message in messages]
+        try:
+            return self.audit_preview(
+                normalized,
+                preview=preview,
+                previous_summary=previous_summary,
+                retained_context=retained_context,
+                language=language,
+                max_review_questions=max_review_questions,
+            )
+        except Exception:
+            from .audit import PreviewAuditor
+            from .review import configured_max_review_questions
+
+            return PreviewAuditor(
+                policy=self.policy,
+                rule_inspector=self.rule_inspector,
+            ).audit(
+                normalized,
+                preview=preview,
+                previous_summary=previous_summary,
+                retained_context=retained_context,
+                language=language,
+                max_review_questions=configured_max_review_questions(max_review_questions),
+            )
+
+    def build_revision_guidance(
+        self,
+        *,
+        review_plan: ReviewPlan,
+        answers: Iterable[dict] = (),
+    ) -> CompactionGuidance:
+        """Build only incremental corrections for a second native compaction call."""
+        from .guidance import build_revision_guidance
+
+        return build_revision_guidance(review_plan, answers)
 
     def apply_decisions(
         self,

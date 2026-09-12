@@ -37,9 +37,10 @@ const entries = await writeSessionFixture(
 
 console.log(`Created ${entries.filter((entry) => entry.type === "message").length} messages.`);
 console.log("Pi will open with the pre-seeded Context Guardian fixture.");
-console.log("Run /compact and review the Keep/Drop prompts.");
-console.log("Expected: keep the goal, API constraint, PostgreSQL decision, SQLite failure, and auth.py TODO.");
-console.log("Expected: drop grep/npm output and the resolved temporary syntax error.");
+console.log("Run /compact and answer at most three topic-level Keep/Drop prompts.");
+console.log("Expected automatic preservation: goal, API constraint, PostgreSQL decision, SQLite failure, and auth.py TODO.");
+console.log("Expected: commands, logs, paths, hashes, and resolved temporary errors stay out of the UI.");
+console.log("The npm fundamentals side discussion may appear as one bounded question.");
 console.log("Then ask: What is the final database, why was SQLite rejected, and what is the auth.py status?");
 console.log("Exit Pi with /quit when finished.");
 

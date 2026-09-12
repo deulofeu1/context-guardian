@@ -88,6 +88,19 @@ export function createSession(sourcePath, tempDir, fillerTurns = 96) {
     }
   }
 
+  // A deliberately weak, user-authored side topic gives the native Preview
+  // something that may reasonably require one bounded human decision. It is
+  // never a raw command or tool log and is safe to omit from project memory.
+  append({
+    role: "user",
+    content: "Side discussion: what is the basic purpose of npm in a JavaScript project?",
+    timestamp: Date.now() + sequence * 1000,
+  });
+  append(assistantMessage(
+    "npm installs packages and runs project scripts; this is unrelated to the OAuth design.",
+    Date.now() + sequence * 1000,
+  ));
+
   const filler =
     "Background implementation note: this is deliberately repetitive padding for the " +
     "Context Guardian fixture smoke test. It represents ordinary progress that can be " +

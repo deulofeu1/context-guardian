@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import type { Context } from "@deepseek-ai/cordis";
 import type { Agent } from "@deepseek-ai/dsh-agent";
 import { generateStructuredWithHost } from "./host-model.js";
-import type { Guidance, GuardianMessage, InspectionResult, MemoryCandidate, ProtocolFrame } from "./types.js";
+import type { Guidance, GuardianMessage, InspectionResult, MemoryCandidate, ProtocolFrame, ReviewPlan } from "./types.js";
 
 const PROTOCOL_VERSION = 1;
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -85,6 +85,16 @@ export function normalizeDeepSeekMessages(
   return result;
 }
 
+export function preferredLanguage(messages: readonly GuardianMessage[]): "zh-CN" | "en" {
+  const userText = messages
+    .filter((message) => message.role === "user")
+    .map((message) => message.content)
+    .join(" ");
+  const chinese = (userText.match(/[\u4e00-\u9fff]/g) ?? []).length;
+  const latin = (userText.match(/[A-Za-z]/g) ?? []).length;
+  return chinese > latin ? "zh-CN" : "en";
+}
+
 export class GuardianBridge {
   async inspect(
     ctx: Context,
@@ -111,10 +121,46 @@ export class GuardianBridge {
     return result as Guidance;
   }
 
+  async auditPreview(
+    ctx: Context,
+    agent: Agent,
+    messages: GuardianMessage[],
+    preview: string,
+    previousSummary: string,
+    retainedContext: string,
+    signal: AbortSignal,
+    maxReviewQuestions = 3,
+  ): Promise<ReviewPlan> {
+    const result = await this.request(ctx, agent, "audit_preview", {
+      messages,
+      preview,
+      previous_summary: previousSummary,
+      retained_context: retainedContext,
+      max_review_questions: maxReviewQuestions,
+      language: preferredLanguage(messages),
+      provider: "host",
+    }, signal);
+    return result as ReviewPlan;
+  }
+
+  async revisionGuidance(
+    ctx: Context,
+    agent: Agent,
+    reviewPlan: ReviewPlan,
+    answers: Array<{ question_id: string; topic_id: string; action: "keep" | "drop" }>,
+    signal: AbortSignal,
+  ): Promise<Guidance> {
+    const result = await this.request(ctx, agent, "revision_guidance", {
+      review_plan: reviewPlan,
+      answers,
+    }, signal);
+    return result as Guidance;
+  }
+
   private async request(
     ctx: Context,
     agent: Agent,
-    operation: "inspect" | "guidance",
+    operation: "inspect" | "guidance" | "audit_preview" | "revision_guidance",
     body: Record<string, unknown>,
     signal: AbortSignal,
   ): Promise<unknown> {

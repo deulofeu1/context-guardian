@@ -55,3 +55,82 @@ def test_bridge_guidance_validates_json_candidates():
     response = json.loads(output_stream.getvalue())
     assert response["ok"] is True
     assert "PostgreSQL" in response["result"]["text"]
+
+
+def test_bridge_audits_native_preview_with_bounded_questions():
+    request = {
+        "protocol_version": 1,
+        "type": "request",
+        "request_id": "request-audit",
+        "operation": "audit_preview",
+        "provider": "rules",
+        "preview": "PostgreSQL is selected.",
+        "messages": [
+            {
+                "id": "u1",
+                "role": "user",
+                "content": "The goal is to implement OAuth without changing the public API.",
+            },
+            {
+                "id": "u2",
+                "role": "user",
+                "content": "auth.py is still incomplete.",
+            },
+        ],
+        "max_review_questions": 3,
+    }
+    input_stream = io.StringIO(json.dumps(request) + "\n")
+    output_stream = io.StringIO()
+    run_protocol(input_stream, output_stream)
+    response = json.loads(output_stream.getvalue())
+    assert response["ok"] is True
+    assert len(response["result"]["review_questions"]) <= 3
+    assert "auth.py" in " ".join(response["result"]["auto_corrections"])
+
+
+def test_bridge_revision_guidance_accepts_topic_answer():
+    request = {
+        "protocol_version": 1,
+        "type": "request",
+        "request_id": "request-revision",
+        "operation": "revision_guidance",
+        "review_plan": {
+            "language": "en",
+            "audit_topics": [
+                {
+                    "id": "topic-1",
+                    "title": "Side topic",
+                    "summary": "Keep the key conclusion.",
+                    "finding_ids": [],
+                    "impact": 0.6,
+                    "confidence": 0.5,
+                    "relevance_to_main_goal": 0.4,
+                    "requires_user_preference": True,
+                    "disposition": "ask_user",
+                    "recommended_action": "drop",
+                    "suggested_correction": "Keep the key conclusion.",
+                }
+            ],
+            "review_questions": [
+                {
+                    "id": "question-1",
+                    "topic_id": "topic-1",
+                    "title": "Side topic",
+                    "question": "Keep it?",
+                    "context": "A key conclusion.",
+                    "why_it_matters": "It may matter later.",
+                    "recommendation": "drop",
+                    "options": [
+                        {"id": "keep", "label": "Keep", "description": "Keep it."},
+                        {"id": "drop", "label": "Drop", "description": "Drop it."},
+                    ],
+                }
+            ],
+        },
+        "answers": [{"question_id": "question-1", "action": "keep"}],
+    }
+    output_stream = io.StringIO()
+    run_protocol(io.StringIO(json.dumps(request) + "\n"), output_stream)
+    response = json.loads(output_stream.getvalue())
+    assert response["ok"] is True
+    assert "Keep the key conclusion." in response["result"]["text"]

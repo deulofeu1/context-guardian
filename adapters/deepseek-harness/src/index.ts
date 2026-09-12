@@ -2,11 +2,11 @@ import type { Context } from "@deepseek-ai/cordis";
 import { BasicCompactionEngine } from "@deepseek-ai/dsh-compaction-basic";
 import type { Agent } from "@deepseek-ai/dsh-agent";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
-import type {} from "@deepseek-ai/dsh-user-questions";
-import type { GuardianMessage, InspectionResult, MemoryCandidate } from "./types.js";
+import type { ReviewPlan, ReviewQuestion } from "./types.js";
 import { GuardianBridge, normalizeDeepSeekMessages } from "./bridge.js";
 
 export const name = "context-guardian-deepseek-harness";
+const MAX_REVIEW_QUESTIONS = 3;
 
 if (process.env.CONTEXT_GUARDIAN_DEBUG === "1") {
   console.error("context guardian: adapter module loaded");
@@ -17,8 +17,6 @@ type NativeSummarizeInput = Parameters<NativeSummarize>[0];
 type NativeSummarizeResult = Awaited<ReturnType<NativeSummarize>>;
 
 const bridge = new GuardianBridge();
-const KEEP = "Keep";
-const DROP = "Drop";
 
 function debug(ctx: Context, message: string): void {
   if (process.env.CONTEXT_GUARDIAN_DEBUG === "1") {
@@ -28,72 +26,83 @@ function debug(ctx: Context, message: string): void {
   }
 }
 
-function candidateDetail(candidate: MemoryCandidate): string {
-  const reason = candidate.reason ? `\n\nReason: ${candidate.reason}` : "";
-  return `Category: ${candidate.category}\nImportance: ${candidate.importance.toFixed(2)} · Confidence: ${candidate.confidence.toFixed(2)}\n\n${candidate.content}${reason}`;
+function configuredReviewBudget(): number {
+  const value = Number(process.env.CONTEXT_GUARDIAN_MAX_REVIEW_QUESTIONS ?? MAX_REVIEW_QUESTIONS);
+  return Number.isInteger(value) && value >= 0 && value <= MAX_REVIEW_QUESTIONS ? value : MAX_REVIEW_QUESTIONS;
 }
 
-function reviewQuestions(candidates: readonly MemoryCandidate[]) {
-  return candidates.map((candidate) => ({
-    id: candidate.id,
-    header: `Context Guardian · ${candidate.category}`,
-    question: "Keep this memory in the compaction guidance?",
-    detail: candidateDetail(candidate),
-    options: [
-      { label: KEEP, description: "Tell the native compactor to preserve this item." },
-      { label: DROP, description: "Tell the native compactor this item may be discarded." },
-    ],
+export function answersForNoUi(plan: ReviewPlan): Array<{
+  question_id: string;
+  topic_id: string;
+  action: "keep" | "drop";
+}> {
+  return plan.review_questions.map((question) => ({
+    question_id: question.id,
+    topic_id: question.topic_id,
+    action: question.recommendation,
   }));
 }
 
-function keepAll(candidates: readonly MemoryCandidate[]): Array<{ candidate_id: string; action: "keep" }> {
-  return candidates.map((candidate) => ({ candidate_id: candidate.id, action: "keep" as const }));
+export function needsRevision(plan: ReviewPlan, answers: readonly { action: "keep" | "drop" }[]): boolean {
+  return plan.auto_corrections.length > 0 || answers.some((answer) => answer.action === "keep");
+}
+
+function reviewQuestionsForUi(questions: readonly ReviewQuestion[]) {
+  return questions.slice(0, MAX_REVIEW_QUESTIONS).map((question) => ({
+    id: question.id,
+    header: question.title,
+    question: question.question,
+    detail: `${question.context}\n\n${question.why_it_matters}\n\n${question.options.map((option) => `${option.label}: ${option.description}`).join("\n")}`,
+    options: question.options.map((option) => ({
+      label: option.label,
+      description: option.description,
+    })),
+  }));
+}
+
+async function answerReviewQuestions(
+  ctx: Context,
+  agent: Agent,
+  plan: ReviewPlan,
+  signal: AbortSignal,
+): Promise<Array<{ question_id: string; topic_id: string; action: "keep" | "drop" }>> {
+  if (plan.review_questions.length === 0) return [];
+  const interaction = ctx.get("userQuestions");
+  if (interaction === undefined) return answersForNoUi(plan);
+
+  try {
+    const answer = await interaction.ask({
+      questions: reviewQuestionsForUi(plan.review_questions),
+      agent,
+      signal,
+    }) as { answers: Array<{ id: string; selected: string[]; custom?: string }> };
+    const byId = new Map(answer.answers.map((item) => [item.id, item]));
+    return plan.review_questions.slice(0, MAX_REVIEW_QUESTIONS).map((question) => {
+      const item = byId.get(question.id);
+      if (item?.custom !== undefined || item?.selected.length !== 1) {
+        throw new Error(`Context Guardian received an invalid answer for ${question.id}`);
+      }
+      const selected = item.selected[0];
+      const option = question.options.find((candidate) => candidate.label === selected);
+      if (!option) throw new Error(`Context Guardian received an unknown answer for ${question.id}`);
+      return {
+        question_id: question.id,
+        topic_id: question.topic_id,
+        action: option.id,
+      };
+    });
+  } catch (error) {
+    const code = errorCode(error);
+    debug(ctx, `userQuestions failed with ${code ?? (error instanceof Error ? error.message : String(error))}`);
+    if (code === "NO_PROVIDER") return answersForNoUi(plan);
+    throw error;
+  }
 }
 
 function errorCode(error: unknown): string | undefined {
   return typeof error === "object" && error !== null && "code" in error
     ? String((error as { code?: unknown }).code)
     : undefined;
-}
-
-async function review(
-  ctx: Context,
-  agent: Agent,
-  candidates: readonly MemoryCandidate[],
-  signal: AbortSignal,
-): Promise<Array<{ candidate_id: string; action: "keep" | "drop" }>> {
-  if (candidates.length === 0) return [];
-  const mode = process.env.CONTEXT_GUARDIAN_REVIEW_MODE;
-  if (mode === "keep") return keepAll(candidates);
-  if (mode === "drop") return candidates.map((candidate) => ({ candidate_id: candidate.id, action: "drop" as const }));
-
-  const interaction = ctx.get("userQuestions");
-  debug(ctx, `reviewing ${String(candidates.length)} candidate(s); userQuestions=${interaction === undefined ? "unavailable" : "available"}`);
-  if (interaction === undefined) return keepAll(candidates);
-  try {
-    const answer = await interaction.ask({
-      questions: reviewQuestions(candidates),
-      agent,
-      signal,
-    });
-    const byId = new Map(answer.answers.map((item) => [item.id, item]));
-    return candidates.map((candidate) => {
-      const item = byId.get(candidate.id);
-      if (item?.custom !== undefined || item?.selected.length !== 1) {
-        throw new Error(`Context Guardian received an invalid answer for ${candidate.id}`);
-      }
-      if (item.selected[0] === KEEP) return { candidate_id: candidate.id, action: "keep" as const };
-      if (item.selected[0] === DROP) return { candidate_id: candidate.id, action: "drop" as const };
-      throw new Error(`Context Guardian received an unknown answer for ${candidate.id}`);
-    });
-  } catch (error) {
-    debug(ctx, `userQuestions failed with ${errorCode(error) ?? (error instanceof Error ? error.message : String(error))}`);
-    // Headless compositions commonly provide the service seam without a UI
-    // answerer. Treat that case conservatively; an explicit cancellation or
-    // protocol failure is allowed to fail open to native compaction below.
-    if (errorCode(error) === "NO_PROVIDER") return keepAll(candidates);
-    throw error;
-  }
 }
 
 function nativeInputWithGuidance(input: NativeSummarizeInput, text: string): NativeSummarizeInput {
@@ -107,15 +116,24 @@ function nativeInputWithGuidance(input: NativeSummarizeInput, text: string): Nat
   } as NativeSummarizeInput;
 }
 
-function normalizeInput(input: NativeSummarizeInput): GuardianMessage[] {
+function normalizeInput(input: NativeSummarizeInput): ReturnType<typeof normalizeDeepSeekMessages> {
   const candidate = input as NativeSummarizeInput & { system?: string };
   return normalizeDeepSeekMessages(candidate.system, input.messages);
 }
 
+function textFromSummary(result: NativeSummarizeResult): string {
+  const blocks = result.summary as readonly { type?: string; text?: string }[];
+  return blocks
+    .filter((block) => block?.type === "text" || block?.type === "reasoning")
+    .map((block) => block.text ?? "")
+    .join("\n")
+    .trim();
+}
+
 /**
- * Decorates DeepSeek Harness's native backend with Context Guardian review.
- * The inherited engine still owns selection, shrink checks, durable markers,
- * session replacement, and the final structured checkpoint summary.
+ * Decorates the native DeepSeek Harness compactor. The native engine owns the
+ * single transaction; this override only performs an uncommitted preview,
+ * an external audit, and (when needed) one guided native retry.
  */
 export class ContextGuardianCompactionEngine extends BasicCompactionEngine {
   protected override async summarize(
@@ -123,36 +141,63 @@ export class ContextGuardianCompactionEngine extends BasicCompactionEngine {
     agent: Agent,
     signal?: AbortSignal,
   ): Promise<NativeSummarizeResult> {
-    let guidedInput: NativeSummarizeInput;
+    const operationSignal = signal ?? new AbortController().signal;
+    const preview = await super.summarize(input, agent, signal);
+    const messages = normalizeInput(input);
+
+    let plan: ReviewPlan;
     try {
-      const operationSignal = signal ?? new AbortController().signal;
-      const inspection: InspectionResult = await bridge.inspect(
+      plan = await bridge.auditPreview(
         this.ctx,
         agent,
-        normalizeInput(input),
+        messages,
+        textFromSummary(preview),
+        "",
+        "",
         operationSignal,
+        configuredReviewBudget(),
       );
-      debug(this.ctx, `inspection returned ${String(inspection.candidates.length)} candidate(s), ${String(inspection.review.length)} for review`);
-      const decisions = [
-        ...keepAll(inspection.auto_keep),
-        ...inspection.auto_drop.map((candidate) => ({ candidate_id: candidate.id, action: "drop" as const })),
-        ...await review(this.ctx, agent, inspection.review, operationSignal),
-      ];
-      const guidance = await bridge.guidance(
+      debug(
         this.ctx,
-        agent,
-        inspection.candidates,
-        decisions,
-        operationSignal,
+        `native preview audited: ${String(plan.findings.length)} finding(s), ${String(plan.review_questions.length)} question(s)`,
       );
-      guidedInput = nativeInputWithGuidance(input, guidance.text);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const code = errorCode(error);
-      this.ctx.logger.warn(`context guardian unavailable${code ? ` [${code}]` : ""}; continuing native compaction: ${message}`);
-      return super.summarize(input, agent, signal);
+      this.ctx.logger.warn(
+        `context guardian audit unavailable; accepting native preview: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return preview;
     }
-    return super.summarize(guidedInput, agent, signal);
+
+    let answers;
+    try {
+      answers = await answerReviewQuestions(this.ctx, agent, plan, operationSignal);
+    } catch (error) {
+      this.ctx.logger.warn(
+        `context guardian review cancelled; accepting native preview: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return preview;
+    }
+    if (!needsRevision(plan, answers)) return preview;
+
+    let guidance;
+    try {
+      guidance = await bridge.revisionGuidance(this.ctx, agent, plan, answers, operationSignal);
+    } catch (error) {
+      this.ctx.logger.warn(
+        `context guardian revision unavailable; accepting native preview: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return preview;
+    }
+    if (!guidance.text) return preview;
+
+    try {
+      return await super.summarize(nativeInputWithGuidance(input, guidance.text), agent, signal);
+    } catch (error) {
+      this.ctx.logger.warn(
+        `context guardian final compaction failed; accepting native preview: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return preview;
+    }
   }
 }
 

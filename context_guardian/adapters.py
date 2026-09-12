@@ -34,6 +34,8 @@ class AdapterCapabilities(BaseModel):
     host_model: str
     human_review: str
     native_compaction_injection: str
+    preview_audit: str = "native preview → semantic audit → optional native retry"
+    max_review_questions: int = 3
 
 
 class ContextGuardianAdapter(Protocol):
@@ -45,7 +47,10 @@ class ContextGuardianAdapter(Protocol):
         """Collect the host's current or pending context."""
 
     def inspect(self, messages: Sequence[ConversationMessage]) -> InspectionResult:
-        """Run the shared Context Guardian inspection pipeline."""
+        """Run the legacy atomic inspection API."""
+
+    def audit_preview(self, messages: Sequence[ConversationMessage], preview: str):
+        """Audit a host-native preview and return a bounded ReviewPlan."""
 
     def review(self, candidates: Sequence[MemoryCandidate]) -> Sequence[ReviewDecision]:
         """Resolve uncertain candidates through the host's review surface."""

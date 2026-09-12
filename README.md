@@ -15,13 +15,15 @@ compaction engine. It makes the hidden keep/drop decision inspectable.
 ```text
 Context
   ↓
-Inspect
+Native Preview
   ↓
-Auto Keep / Auto Drop
+Semantic Audit
   ↓
-Human Review
+Auto Correct / Accept Preview
   ↓
-Compaction Guidance
+At most 3 Topic Questions
+  ↓
+Incremental Guidance
   ↓
 Agent Native Compaction
 ```
@@ -29,9 +31,9 @@ Agent Native Compaction
 ## Why it exists
 
 Agents often discard the reason a path was rejected. That can make them repeat the
-same failed approach after compaction. Context Guardian surfaces durable decisions,
-constraints, failed attempts, unfinished work, and transient noise before the host
-agent summarizes the context.
+same failed approach after compaction. Context Guardian audits the host's native
+preview for durable decisions, constraints, failed attempts, unfinished work, and
+transient noise. Human review is topic-level, not sentence-level.
 
 ## Experimental status and project scope
 
@@ -104,14 +106,15 @@ Now run the local Python CLI without an API key:
 
 ```bash
 context-guardian inspect examples/conversation.json
-context-guardian inspect examples/conversation.json --json
-context-guardian review examples/conversation.json
+context-guardian inspect examples/conversation.json --preview-file native-preview.txt --json
+context-guardian review examples/conversation.json --preview-file native-preview.txt
 context-guardian verify examples/conversation.json
 ```
 
 `verify` is a deterministic release smoke test. It needs no model or API key and
-checks critical-memory retention, noise removal, stable candidate IDs, and rendered
-guidance. It is a fast core check, not a replacement for the interactive Pi test.
+checks native-preview audit corrections, noise removal, stable IDs, bounded questions,
+and rendered guidance. It is a fast core check, not a replacement for the interactive
+Pi/DSH fixture tests.
 
 For the source Pi workflow, use the interactive fixture from a checkout:
 
@@ -130,8 +133,9 @@ Web profile:
 dsh plugin --profile web add "$PWD/adapters/deepseek-harness"
 ```
 
-Inside Pi, the adapter reuses the current host model and its existing credentials.
-No second API key is required. The Python process never receives those credentials.
+Inside Pi, the adapter first asks Pi for a native Preview, audits it with the current
+host model, and retries native compaction only when correction is needed. No second API
+key is required. The Python process never receives those credentials.
 The published adapter is tested against Pi `0.82.1` and Node.js `22.19.0+`.
 
 For DeepSeek Harness:
@@ -141,19 +145,20 @@ dsh plugin --profile web add /absolute/path/to/ContextGuardian/adapters/deepseek
 ```
 
 This adapter decorates DeepSeek Harness's native `dsh-compaction-basic` backend.
-It reuses Harness's active model route for structured inspection, presents uncertain
-candidates through Harness's user-question UI, and passes the resulting guidance back
-into the native summary. Harness remains responsible for session persistence and the
-compaction transaction. The adapter targets the DeepSeek Harness `0.1.5-rc.x` API
-family and is installed as a separate package from the Pi adapter. Web sessions use
-the selected agent preset, so the preset must contain the Context Guardian compaction
-row; the adapter README documents the one-time preset setup.
+It lets Harness produce a Preview, audits it through the active `ctx.llm` route,
+asks at most three topic questions, and performs one guided native retry only when
+needed. Harness remains responsible for session persistence and the compaction
+transaction. Web sessions use the selected agent preset, so the preset must contain
+the Context Guardian compaction row.
 
 ## Modes
 
 - Rules mode is local, deterministic, conservative, and the default for the CLI.
-- Pi mode asks the host agent's current model for structured candidates, then uses
-  Pi's native compaction helper with the resulting guidance.
+- Native adapters produce a host Preview first, then audit it; automatic corrections
+  and confirmed topic decisions become incremental instructions for one native retry.
+- The default review budget is three topic questions and can be lowered with
+  `CONTEXT_GUARDIAN_MAX_REVIEW_QUESTIONS=0..3`. Zero disables questions and uses
+  conservative no-UI resolution.
 - OpenAI is an optional standalone CLI provider: `pip install 'context-guardian-core[openai]'` when needed.
 
 If the bridge, model call, or review UI fails, the adapter fails open and lets native
@@ -199,8 +204,8 @@ Claude Code settings; otherwise no CC restoration is needed.
 
 | Platform | Level | Auto trigger | Host model | Human review | Preservation |
 | --- | --- | --- | --- | --- | --- |
-| Pi | Native | Yes | Pi current model | Pi UI | Direct native `customInstructions` |
-| DeepSeek Harness | Native | Yes | Harness current `ctx.llm` route | `userQuestions` UI | Direct native input message |
+| Pi | Native | Yes | Pi current model | Pi UI, max 3 topics | Preview audit + native `customInstructions` retry |
+| DeepSeek Harness | Native | Yes | Harness current `ctx.llm` route | `userQuestions`, max 3 topics | Preview audit + native input retry |
 
 The current release focuses on native compaction integrations. See
 [`docs/adapter-contract.md`](docs/adapter-contract.md) and
@@ -213,14 +218,13 @@ and capability declaration.
 from context_guardian import ContextGuardian
 
 guardian = ContextGuardian()
-result = guardian.inspect(messages)
+plan = guardian.audit_preview(messages, preview="the host's native preview text")
+revision = guardian.build_revision_guidance(review_plan=plan, answers=[])
+print(plan.review_questions)
+print(revision.text)
 
-decisions = [{"candidate_id": result.review[0].id, "action": "keep"}]
-guidance = guardian.build_guidance(result.candidates, decisions)
-print(guidance.text)
-
-checkpoint = guardian.build_checkpoint(result.candidates, decisions)
-print(checkpoint.text)
+# Checkpoint generation remains available for assisted integrations through
+# guardian.build_checkpoint(...).
 ```
 
 ## Project boundary
