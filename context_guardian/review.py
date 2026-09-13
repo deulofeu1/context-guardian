@@ -50,6 +50,7 @@ _DURABLE_CONCLUSION = re.compile(
     re.I,
 )
 _TOKEN = re.compile(r"[a-z][a-z0-9_.-]{2,}|[\u4e00-\u9fff]+", re.I)
+_LATIN_WORD = re.compile(r"\b[A-Za-z][A-Za-z0-9_'-]*\b")
 
 _STOPWORDS = frozenset(
     {
@@ -105,7 +106,12 @@ def configured_max_review_questions(value: str | int | None = None) -> int:
 
 
 def detect_language(messages: Iterable[ConversationMessage | dict]) -> str:
-    """Detect language from user-authored messages only, with English fallback."""
+    """Detect language from user-authored messages only, with English fallback.
+
+    Count Chinese characters but Latin words. Technical identifiers and product
+    names such as ``Context Guardian`` or ``public API`` should not outweigh a
+    Chinese sentence merely because they contain many individual letters.
+    """
 
     user_text = " ".join(
         ConversationMessage.model_validate(message).content
@@ -113,7 +119,7 @@ def detect_language(messages: Iterable[ConversationMessage | dict]) -> str:
         if ConversationMessage.model_validate(message).role == "user"
     )
     chinese = len(re.findall(r"[\u4e00-\u9fff]", user_text))
-    latin = len(re.findall(r"[A-Za-z]", user_text))
+    latin = len(_LATIN_WORD.findall(user_text))
     return "zh-CN" if chinese > latin else "en"
 
 

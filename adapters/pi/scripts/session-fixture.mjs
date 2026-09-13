@@ -38,7 +38,25 @@ function assistantMessage(text, timestamp, toolCall) {
   };
 }
 
-export function createSession(sourcePath, tempDir, fillerTurns = 96) {
+const DEFAULT_FIXTURE_TRANSLATIONS = new Map([
+  [
+    "The goal is to implement OAuth without modifying the public API.",
+    "目标：实现 OAuth，但不能修改 public API。",
+  ],
+  ["Let's stop using SQLite. Use PostgreSQL instead.", "决定：停止使用 SQLite，改用 PostgreSQL。"],
+  ["I first tried SQLite for the auth state.", "我首先尝试使用 SQLite 保存认证状态。"],
+  [
+    "PostgreSQL is now the selected database. auth.py is still incomplete.",
+    "PostgreSQL 已确定为数据库方案，auth.py 仍未完成。",
+  ],
+  ["A temporary syntax error was fixed.", "临时语法错误已解决。"],
+]);
+
+function localizeDefaultFixtureText(text) {
+  return DEFAULT_FIXTURE_TRANSLATIONS.get(text) ?? text;
+}
+
+export function createSession(sourcePath, tempDir, fillerTurns = 320) {
   const source = JSON.parse(readFileSync(sourcePath, "utf8"));
   const sessionId = randomUUID();
   const entries = [
@@ -68,7 +86,7 @@ export function createSession(sourcePath, tempDir, fillerTurns = 96) {
   for (const message of source.messages) {
     const timestamp = Date.now() + sequence * 1000;
     if (message.role === "user") {
-      append({ role: "user", content: message.content, timestamp });
+      append({ role: "user", content: localizeDefaultFixtureText(message.content), timestamp });
     } else if (message.role === "tool") {
       const callId = `fixture-call-${sequence}`;
       append(assistantMessage("Running a diagnostic command.", timestamp, {
@@ -84,7 +102,7 @@ export function createSession(sourcePath, tempDir, fillerTurns = 96) {
         timestamp: timestamp + 1,
       });
     } else {
-      append(assistantMessage(message.content, timestamp));
+      append(assistantMessage(localizeDefaultFixtureText(message.content), timestamp));
     }
   }
 
@@ -93,32 +111,31 @@ export function createSession(sourcePath, tempDir, fillerTurns = 96) {
   // never a raw command or tool log and is safe to omit from project memory.
   append({
     role: "user",
-    content: "Side discussion: what is the basic purpose of npm in a JavaScript project?",
+    content: "旁支讨论：npm 在 JavaScript 项目中的基本用途是什么？",
     timestamp: Date.now() + sequence * 1000,
   });
   append(assistantMessage(
-    "npm installs packages and runs project scripts; this is unrelated to the OAuth design.",
+    "npm 可以安装依赖并运行项目脚本，这与 OAuth 设计无关。",
     Date.now() + sequence * 1000,
   ));
 
   const filler =
-    "Background implementation note: this is deliberately repetitive padding for the " +
-    "Context Guardian fixture smoke test. It represents ordinary progress that can be " +
-    "summarized without changing the important project decision. ";
+    "背景实现记录：这是 Context Guardian fixture smoke test 的重复填充，表示不会改变关键项目决定的常规进度，" +
+    "压缩时可以安全概括。";
   for (let index = 0; index < fillerTurns; index += 1) {
     const detail = `${filler}turn=${index}; ${filler}`;
     append({
       role: "user",
-      content: `Continue tracking routine progress. ${detail}`,
+      content: `继续记录常规进度。${detail}`,
       timestamp: Date.now() + sequence * 1000,
     });
-    append(assistantMessage(`Routine progress recorded. ${detail}`, Date.now() + sequence * 1000));
+    append(assistantMessage(`已记录常规进度。${detail}`, Date.now() + sequence * 1000));
   }
 
   return entries;
 }
 
-export async function writeSessionFixture(sourcePath, tempDir, sessionPath, fillerTurns = 96) {
+export async function writeSessionFixture(sourcePath, tempDir, sessionPath, fillerTurns = 320) {
   const entries = createSession(sourcePath, tempDir, fillerTurns);
   await writeFile(sessionPath, entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n", "utf8");
   return entries;

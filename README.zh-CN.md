@@ -143,6 +143,9 @@ Guidance，同时不会把原始 grep/npm 命令噪声放入 Review UI。它使�
 不需要 DeepSeek API Key。详细步骤见
 [`adapters/deepseek-harness/README.md`](adapters/deepseek-harness/README.md)。
 
+Review 文案会跟随用户消息占主导的语言。`OAuth`、`npm`、`public API` 等技术名称会
+保留原样；`Compacting...` 等由 Pi 或 Harness 自己提供的宿主状态文案仍可能是英文。
+
 ## 工作模式
 
 - 规则模式：本地、确定性、保守，是 CLI 默认模式。
