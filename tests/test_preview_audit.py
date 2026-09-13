@@ -166,6 +166,35 @@ def test_same_side_topic_is_aggregated_and_language_comes_from_users_only():
     assert len(plan.review_questions) == 1
 
 
+def test_technical_english_terms_do_not_outvote_chinese_user_prose():
+    messages = [
+        {
+            "role": "user",
+            "content": (
+                "目标是让 Context Guardian fixture smoke test 支持 public API 兼容。"
+                "请保留当前约束。"
+            ),
+        },
+    ]
+    plan = ContextGuardian().audit_preview(messages, preview="")
+    assert plan.language == "zh-CN"
+
+
+def test_chinese_review_question_localizes_topic_ui_with_technical_terms():
+    messages = [
+        {"role": "assistant", "content": "English assistant output should not set the UI language."},
+        {"role": "user", "content": "顺便讨论一下 npm 的基本用途，我不确定以后是否需要继续使用。"},
+    ]
+    plan = ContextGuardian().audit_preview(messages, preview="")
+    assert plan.language == "zh-CN"
+    assert len(plan.review_questions) == 1
+    question = plan.review_questions[0]
+    assert question.question.startswith("压缩后是否需要特别保留")
+    assert question.options[0].label == "保留关键结论"
+    assert question.options[1].label == "无需特别保留"
+    assert "原始对话" in question.context
+
+
 def test_revision_guidance_is_incremental_and_maps_topic_answer():
     finding = AuditFinding(
         id="f1",

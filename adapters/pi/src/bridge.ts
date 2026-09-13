@@ -79,7 +79,9 @@ export function preferredLanguage(messages: readonly GuardianMessage[]): "zh-CN"
     .map((message) => message.content)
     .join(" ");
   const chinese = (userText.match(/[\u4e00-\u9fff]/g) ?? []).length;
-  const latin = (userText.match(/[A-Za-z]/g) ?? []).length;
+  // Count Latin words rather than individual letters. Technical names such as
+  // "Context Guardian" and "public API" must not outweigh Chinese prose.
+  const latin = (userText.match(/\b[A-Za-z][A-Za-z0-9_'-]*\b/g) ?? []).length;
   return chinese > latin ? "zh-CN" : "en";
 }
 

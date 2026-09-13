@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1 - 2026-09-13 (Language detection fix)
+
+- Count Chinese characters and Latin words separately when choosing the Review UI
+  language, so technical identifiers and product names cannot outweigh Chinese prose.
+- Added Pi, DeepSeek Harness, and Python regression coverage for mixed Chinese/English
+  user messages.
+- Made the Pi fixture long enough to cross Pi's native recent-token compaction boundary
+  and localized its durable user-authored messages for a representative Chinese UI test.
+
 ## 0.2.0 - 2026-09-12 (Preview Audit)
 
 - Added native-preview auditing with source-backed findings for missing, incorrect,

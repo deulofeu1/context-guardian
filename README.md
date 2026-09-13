@@ -280,6 +280,10 @@ PostgreSQL decision, `auth.py` TODO, and SQLite rejection reason reach native
 compaction guidance while transient grep/npm output is discarded. No real API key is
 needed because the fixture uses a replay model.
 
+Review text follows the dominant language of user-authored messages. Technical names
+such as `OAuth`, `npm`, and `public API` remain unchanged, while host status text such
+as `Compacting...` may still be supplied by Pi itself.
+
 ## License
 
 MIT.

@@ -23,8 +23,11 @@ const environment = { ...process.env };
 if (!environment.CONTEXT_GUARDIAN_PYTHON && python) {
   environment.CONTEXT_GUARDIAN_PYTHON = python;
 }
-const requestedTurns = Number(process.env.CONTEXT_GUARDIAN_FIXTURE_TURNS || 96);
-const fillerTurns = Number.isInteger(requestedTurns) && requestedTurns > 0 ? requestedTurns : 96;
+// Pi keeps roughly 20k recent tokens outside a compaction. The fixture must
+// exceed that boundary so `/compact` exercises the real native path instead
+// of returning "Nothing to compact (session too small)".
+const requestedTurns = Number(process.env.CONTEXT_GUARDIAN_FIXTURE_TURNS || 320);
+const fillerTurns = Number.isInteger(requestedTurns) && requestedTurns > 0 ? requestedTurns : 320;
 
 const tempDir = await mkdtemp(resolve(tmpdir(), "context-guardian-fixture-") + "-");
 const sessionPath = resolve(tempDir, "fixture.jsonl");

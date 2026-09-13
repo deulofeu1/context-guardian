@@ -78,6 +78,7 @@ _DURABLE = re.compile(
 )
 _COMPLETION = re.compile(r"\b(?:completed|complete|finished|resolved|已完成|完成|已解决)\b", re.I)
 _TOKEN = re.compile(r"[A-Za-z][A-Za-z0-9_.-]{2,}|[\u4e00-\u9fff]+", re.I)
+_LATIN_WORD = re.compile(r"\b[A-Za-z][A-Za-z0-9_'-]*\b")
 
 
 class AuditInput(BaseModel):
@@ -89,12 +90,16 @@ class AuditInput(BaseModel):
 
 
 def detect_user_language(messages: Iterable[ConversationMessage | dict]) -> str:
-    """Detect language from user-authored messages only."""
+    """Detect language from user-authored messages only.
+
+    Count Chinese characters but Latin words so technical identifiers and
+    product names do not drown out the language of a Chinese sentence.
+    """
 
     normalized = [ConversationMessage.model_validate(message) for message in messages]
     user_text = " ".join(message.content for message in normalized if message.role == "user")
     chinese = len(re.findall(r"[\u4e00-\u9fff]", user_text))
-    latin = len(re.findall(r"[A-Za-z]", user_text))
+    latin = len(_LATIN_WORD.findall(user_text))
     return "zh-CN" if chinese > latin else "en"
 
 

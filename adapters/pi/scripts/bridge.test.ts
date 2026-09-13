@@ -36,6 +36,14 @@ test("Pi bridge detects language from user messages only", () => {
     { role: "assistant", content: "中文输出", id: "a2" },
     { role: "user", content: "Keep the API compatible", id: "u2" },
   ]), "en");
+  assert.equal(preferredLanguage([
+    { role: "assistant", content: "English assistant output", id: "a3" },
+    {
+      role: "user",
+      content: "目标是让 Context Guardian fixture smoke test 支持 public API 兼容。请保留当前约束。",
+      id: "u3",
+    },
+  ]), "zh-CN");
 });
 
 test("Pi no-UI resolution follows recommendations and preserves corrections", () => {
