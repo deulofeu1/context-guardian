@@ -24,7 +24,10 @@ DEFAULT_MAX_REVIEW_QUESTIONS = 3
 MAX_REVIEW_QUESTIONS = 3
 
 _COMMAND_START = re.compile(
-    r"^\s*(?:\$|PS\s*[>:]|(?:npm|pnpm|yarn|pip|uv|grep|rg|find|ls|pwd|cat|head|tail)\s+)", re.I
+    r"^\s*(?:\$|PS\s*[>:]|"
+    r"(?:npm|pnpm|yarn|pip|uv)\s+(?:install|update|add|remove|ci|run|publish|audit|test)\b|"
+    r"(?:grep|rg|find|ls|pwd|cat|head|tail)\s+(?:[-/]|[A-Za-z0-9_.]))",
+    re.I,
 )
 _COMMAND_SENTENCE = re.compile(
     r"\b(?:ran|run|executed|execute|运行|执行)\s+(?:npm|pnpm|yarn|pip|uv|grep|rg|find|ls|pwd|cat)\b",

@@ -98,10 +98,12 @@ env PATH="/path/to/node-22.19/bin:$PATH" npm run dsh-fixture-smoke
 ```
 
 The fixture creates an isolated Web profile, seeds a sufficiently large conversation,
-deliberately omits selected facts from the replayed native Preview, opens the Harness
-UI, and pauses on at most three topic questions. Select Keep or Drop, then confirm the
-guided native `/compact` result. It uses a replay model, so no DeepSeek API key is
-required. Exit the temporary Web process with Ctrl-C when finished.
+deliberately omits selected facts from the replayed native Preview, and opens the
+Harness UI. Select the session named `Context Guardian 预置长对话（请先选择）`
+(or the `context-guardian-fixture-long` workspace), then enter `/compact`. The UI
+should show at most three topic questions; select Keep or Drop and confirm the guided
+native compaction result. It uses a replay model, so no DeepSeek API key is required.
+Exit the temporary Web process with Ctrl-C when finished.
 
 ## Disable or uninstall
 

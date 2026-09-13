@@ -273,10 +273,12 @@ env PATH="/path/to/node-22.19/bin:$PATH" npm run dsh-fixture-smoke
 ```
 
 It creates a temporary Harness profile and a pre-seeded long session, opens the Web UI,
-and pauses on an uncertain SQLite decision so you can select Keep or Drop. It also
-verifies that the goal, API constraint, PostgreSQL decision, `auth.py` TODO, and useful
-failure context reach native compaction guidance while transient grep/npm output is
-discarded. No real API key is needed because the fixture uses a replay model.
+and pauses on a single topic-level question about an npm fundamentals side discussion.
+Select the session named `Context Guardian 预置长对话（请先选择）`, then enter
+`/compact` and choose Keep or Drop. It also verifies that the goal, API constraint,
+PostgreSQL decision, `auth.py` TODO, and SQLite rejection reason reach native
+compaction guidance while transient grep/npm output is discarded. No real API key is
+needed because the fixture uses a replay model.
 
 ## License
 

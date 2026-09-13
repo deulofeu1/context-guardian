@@ -86,18 +86,18 @@ function buildFixtureEvents() {
   });
 
   const durableTurns = [
-    "Goal: implement OAuth without changing the public API.",
-    "Constraint: existing API compatibility must be preserved.",
-    "Decision: PostgreSQL is the final database choice.",
-    "SQLite was considered but abandoned because concurrent writes caused locking problems.",
-    "TODO: auth.py is still incomplete and needs the OAuth callback implementation.",
-    "Working state: the provider abstraction is wired, but the callback path is not finished.",
-    "User preference: keep the patch small and avoid adding a new service.",
-    "The migration tests cover the existing public API and must continue to pass.",
-    "We should document the OAuth redirect URI and the production callback environment variables.",
-    "The rejected SQLite approach should not be tried again unless the concurrency design changes.",
-    "The next implementation step is to finish auth.py and then run the compatibility suite.",
-    "Current status: the main design is settled; only the callback and final verification remain.",
+    "目标：实现 OAuth，但不能修改 public API。",
+    "约束：必须保持现有 API 兼容。",
+    "决定：PostgreSQL 是最终数据库方案。",
+    "SQLite 曾被考虑，但因为并发写入导致锁问题而放弃。",
+    "TODO：auth.py 仍未完成，需要实现 OAuth 回调。",
+    "当前状态：provider abstraction 已接入，但 callback 路径还未完成。",
+    "用户偏好：保持补丁小巧，不要新增服务。",
+    "迁移测试覆盖现有 public API，必须继续通过。",
+    "需要记录 OAuth redirect URI 和生产环境 callback 变量。",
+    "除非并发设计发生变化，否则不要再次尝试被放弃的 SQLite 方案。",
+    "下一步：完成 auth.py，然后运行兼容性测试。",
+    "当前状态：主要设计已经确定，只剩 callback 和最终验证。",
   ];
   const noisyTurns = [
     "grep -R OAuth src/",
@@ -117,8 +117,8 @@ function buildFixtureEvents() {
     }), { surfaceOp: "append" });
 
     const assistantText = userText.startsWith("grep") || userText.startsWith("npm") || userText.startsWith("rg")
-      ? `Observed transient command output: ${userText}`
-      : `Acknowledged project state: ${userText}`;
+      ? `观察到临时命令输出：${userText}`
+      : `已记录项目状态：${userText}`;
     const assistant = createAssistantMessage({
       content: [{ type: "text", text: assistantText }],
       source: { provider: replayProvider, model: replayModel },
@@ -134,14 +134,21 @@ function buildFixtureEvents() {
     push("step/end", { turn: 1, step });
   }
 
+  // Make the seeded session unmistakable in the Web session list. This is a
+  // fallback title for the fixture, not a model call, so it cannot consume the
+  // replay script before the user starts the compaction test.
+  push("session/title", {
+    title: "Context Guardian 预置长对话（请先选择）",
+    messageSeqs: [SessionSeq(4)],
+    source: { kind: "fallback" },
+  });
   push("turn/end", { turn: 1, reason: { kind: "completed" } });
   return events;
 }
 
-async function seedSession(root, cwd) {
+async function seedSession(root, cwd, id) {
   const ctx = new Context();
   await ctx.plugin(JsonlSessionPersistence, { root, compression: "none" });
-  const id = SessionId(`context-guardian-fixture-${randomUUID()}`);
   const header = {
     version: SESSION_FORMAT_VERSION,
     id,
@@ -169,7 +176,10 @@ async function main() {
 
   const tempDir = await mkdtemp(resolve(tmpdir(), "context-guardian-dsh-fixture-") + "-");
   const dshHome = resolve(tempDir, ".dsh");
-  const cwd = resolve(tempDir, "workspace");
+  // Use a distinctive directory name because DSH falls back to the working
+  // directory basename in some Web session-list views, even when the seeded
+  // session/title event is available.
+  const cwd = resolve(tempDir, "context-guardian-fixture-long");
   const sessionsRoot = resolve(tempDir, "sessions");
   const profile = "context-guardian-fixture";
   const fixturePath = resolve(tempDir, "replay-session.jsonl");
@@ -203,7 +213,8 @@ async function main() {
     "        headChars: 4096",
     "        tailChars: 1024",
   ].join("\n") + "\n", "utf8");
-  await seedSession(sessionsRoot, cwd);
+  const seededSessionId = SessionId(`context-guardian-fixture-${randomUUID()}`);
+  await seedSession(sessionsRoot, cwd, seededSessionId);
 
   const inspectionResult = {
     candidates: [
@@ -279,42 +290,42 @@ async function main() {
       },
     ],
   };
-  const nativePreview = "The project goal is to implement OAuth without changing the public API.\nPostgreSQL is the final database choice.\nThe existing API compatibility requirement remains.";
+  const nativePreview = "目标：实现 OAuth，但不能修改 public API。\n决定：PostgreSQL 是最终数据库方案。\n当前 API 兼容约束仍然有效。";
   const auditPlan = {
-    language: "en",
-    overview: "The native preview is ready. Two explicit corrections were found; one side topic needs your judgment.",
-    auto_preserve_summary: "The goal, compatibility constraint, and PostgreSQL decision are already present.",
+    language: "zh-CN",
+    overview: "原生预览已经生成。发现 2 项明确修正，还有 1 个旁支主题需要你判断。",
+    auto_preserve_summary: "当前目标、API 兼容约束和 PostgreSQL 决定已经被原生预览保留。",
     findings: [
       {
         id: "finding-sqlite",
         issue_type: "missing",
         category: "failed_attempt",
-        summary: "SQLite was abandoned because concurrent writes caused locking problems.",
-        why_it_matters: "This prevents repeating a rejected database path.",
-        suggested_correction: "SQLite was abandoned because concurrent writes caused locking problems.",
+        summary: "SQLite 因并发写入导致锁问题而被放弃。",
+        why_it_matters: "这可以避免再次走一条已经被否决的数据库路径。",
+        suggested_correction: "SQLite 因并发写入导致锁问题而被放弃。",
         importance: 0.9,
         confidence: 0.95,
         source_message_ids: ["fixture-sqlite"],
-        evidence_snippets: ["SQLite was abandoned because concurrent writes caused locking problems."],
+        evidence_snippets: ["SQLite 因并发写入导致锁问题而被放弃。"],
       },
       {
         id: "finding-auth",
         issue_type: "missing",
         category: "todo",
-        summary: "auth.py is still incomplete and needs the OAuth callback implementation.",
-        why_it_matters: "It is the next unfinished implementation step.",
-        suggested_correction: "auth.py is still incomplete and needs the OAuth callback implementation.",
+        summary: "auth.py 仍未完成，需要实现 OAuth 回调。",
+        why_it_matters: "这是当前下一个尚未完成的实现步骤。",
+        suggested_correction: "auth.py 仍未完成，需要实现 OAuth 回调。",
         importance: 0.9,
         confidence: 0.95,
         source_message_ids: ["fixture-auth"],
-        evidence_snippets: ["auth.py remains incomplete."],
+        evidence_snippets: ["auth.py 仍未完成。"],
       },
     ],
     audit_topics: [
       {
         id: "topic-corrections",
-        title: "Missing project state",
-        summary: "The rejected SQLite path and unfinished auth.py work are missing from the Preview.",
+        title: "预览中缺失的项目状态",
+        summary: "预览遗漏了被放弃的 SQLite 路径和未完成的 auth.py 工作。",
         finding_ids: ["finding-sqlite", "finding-auth"],
         impact: 0.95,
         confidence: 0.95,
@@ -322,12 +333,12 @@ async function main() {
         requires_user_preference: false,
         disposition: "auto_correct",
         recommended_action: "correct",
-        suggested_correction: "SQLite was abandoned because concurrent writes caused locking problems. auth.py is still incomplete and needs the OAuth callback implementation.",
+        suggested_correction: "SQLite 因并发写入导致锁问题而被放弃。auth.py 仍未完成，需要实现 OAuth 回调。",
       },
       {
         id: "topic-npm",
-        title: "npm fundamentals side discussion",
-        summary: "You discussed the basic purpose of npm during the project.",
+        title: "npm 基础概念旁支讨论",
+        summary: "你在项目开发过程中讨论过 npm 的基本用途。",
         finding_ids: [],
         impact: 0.35,
         confidence: 0.72,
@@ -335,26 +346,26 @@ async function main() {
         requires_user_preference: true,
         disposition: "ask_user",
         recommended_action: "drop",
-        suggested_correction: "The npm discussion was a side topic; preserve only its key conclusion if requested.",
+        suggested_correction: "npm 讨论属于旁支内容；只有在你明确需要时才保留其关键结论。",
       },
     ],
     auto_corrections: [
-      "SQLite was abandoned because concurrent writes caused locking problems.",
-      "auth.py is still incomplete and needs the OAuth callback implementation.",
+      "SQLite 因并发写入导致锁问题而被放弃。",
+      "auth.py 仍未完成，需要实现 OAuth 回调。",
     ],
-    accepted_omissions: ["Transient tool output, logs, paths, hashes, and resolved errors."],
+    accepted_omissions: ["临时工具输出、日志、路径、哈希和已解决的错误。"],
     review_questions: [
       {
         id: "question-npm",
         topic_id: "topic-npm",
-        title: "npm fundamentals side discussion",
-        question: "Should the compaction specially preserve this npm side discussion?",
-        context: "You asked about the basic purpose of npm during the project.",
-        why_it_matters: "It is weakly related to the current implementation task.",
+        title: "npm 基础概念旁支讨论",
+        question: "压缩后是否需要特别保留“npm 基础概念”这个旁支主题？",
+        context: "你曾在项目开发过程中询问 npm 的基本用途。",
+        why_it_matters: "这部分与当前实现任务的关系较弱。",
         recommendation: "drop",
         options: [
-          { id: "keep", label: "Keep key conclusion", description: "Preserve the topic's key conclusion." },
-          { id: "drop", label: "Accept preview", description: "Do not specially preserve it." },
+          { id: "keep", label: "保留关键结论", description: "要求最终摘要保留该主题的关键结论。" },
+          { id: "drop", label: "无需特别保留", description: "接受原生预览对该主题的处理。" },
         ],
       },
     ],
@@ -366,9 +377,9 @@ async function main() {
     cwd,
     delegationDepth: 0,
     type: "session",
-    id: "fixture-replay",
+    id: seededSessionId,
   }) + "\n", "utf8");
-  const summary = "## Primary Request and Intent\n- Implement OAuth without changing the public API.\n\n## Key Technical Concepts\n- Preserve existing API compatibility.\n\n## Files and Code\n- auth.py: OAuth callback remains incomplete.\n\n## Errors and Fixes\n- SQLite was rejected because of concurrent-write locking problems.\n\n## Pending Jobs\n- Finish auth.py and run compatibility tests.\n\n## Current Work\n- The provider abstraction is wired; the callback remains.\n\n## Next Step\n- Implement the OAuth callback.\n\n## Critical Context\n- PostgreSQL is final; do not repeat the rejected SQLite path.\n";
+  const summary = "## 主要请求和目标\n- 实现 OAuth，但不能修改 public API。\n\n## 关键技术约束\n- 必须保持现有 API 兼容。\n\n## 文件和代码\n- auth.py：OAuth 回调仍未完成。\n\n## 错误与修正\n- SQLite 因并发写入导致锁问题而被放弃。\n\n## 待办事项\n- 完成 auth.py 并运行兼容性测试。\n\n## 当前工作\n- provider abstraction 已接入；callback 仍待完成。\n\n## 下一步\n- 实现 OAuth callback。\n\n## 关键上下文\n- PostgreSQL 是最终方案；不要重复被放弃的 SQLite 路径。\n";
   await writeFile(overridePath, JSON.stringify([
     {
       kind: "chunks",
@@ -457,7 +468,7 @@ async function main() {
 
     console.log("");
     console.log("DeepSeek Harness Context Guardian fixture is ready.");
-    console.log("Open the printed Web URL, select the seeded session, enter /compact, and answer at most three topic questions.");
+    console.log("Open the printed Web URL, select 'Context Guardian 预置长对话（请先选择）' (or the context-guardian-fixture-long session), enter /compact, and answer at most three topic questions.");
     console.log("Expected automatic corrections: SQLite failure reason and the incomplete auth.py TODO.");
     console.log("Expected topic question: npm fundamentals side discussion; execution noise stays out of the UI.");
     console.log("Expected final result: goal, API constraint, PostgreSQL, selected corrections, and no raw logs.");

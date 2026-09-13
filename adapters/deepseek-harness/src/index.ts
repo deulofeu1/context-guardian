@@ -88,7 +88,19 @@ async function answerReviewQuestions(
   signal: AbortSignal,
 ): Promise<Array<{ question_id: string; topic_id: string; action: "keep" | "drop" }>> {
   if (plan.review_questions.length === 0) return [];
-  const interaction = ctx.get("userQuestions");
+  // `Context.get()` deliberately bypasses a plugin's injected dependency map.
+  // Compaction is an isolated Cordis plugin, so read the injected property
+  // instead; otherwise the Web answerer is present in the host but invisible
+  // to this adapter and every review silently takes the no-UI fallback.
+  let interaction: { ask: (request: unknown) => Promise<unknown> } | undefined;
+  try {
+    interaction = (ctx as Context & {
+      userQuestions?: { ask: (request: unknown) => Promise<unknown> };
+    }).userQuestions;
+  } catch (error) {
+    debug(ctx, `userQuestions unavailable; policy fallback ${errorCode(error) ?? "missing"}`);
+    return answersForNoUi(plan);
+  }
   if (interaction === undefined) return answersForNoUi(plan);
 
   try {
@@ -157,6 +169,11 @@ function textFromSummary(result: NativeSummarizeResult): string {
  * an external audit, and (when needed) one guided native retry.
  */
 export class ContextGuardianCompactionEngine extends BasicCompactionEngine {
+  // Compaction runs in its own isolated Cordis scope. Declare the human
+  // question capability explicitly so the Web answerer is visible there;
+  // without this dependency the adapter silently took its no-UI fallback.
+  static override inject = [...BasicCompactionEngine.inject, "userQuestions"];
+
   protected override async summarize(
     input: NativeSummarizeInput,
     agent: Agent,

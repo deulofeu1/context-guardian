@@ -12,6 +12,9 @@
   compaction only when a correction or confirmed topic decision is needed.
 - Kept successful native previews as the fail-open result when audit, UI, or retry
   fails; no host session transaction or final summarizer is replaced.
+- Fixed semantic topics beginning with tool names (for example, `npm` fundamentals)
+  being mistaken for raw command noise, and made the DSH fixture session easy to
+  identify in the Web session list.
 
 ## 0.1.2 - 2026-09-12 (Pi adapter)
 

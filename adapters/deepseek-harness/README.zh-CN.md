@@ -101,9 +101,12 @@ env PATH="/path/to/node-22.19/bin:$PATH" npm run dsh-fixture-smoke
 ```
 
 fixture 会创建隔离的 Web profile，预置足够长的会话，并故意让 replay 的原生
-Preview 缺少部分事实；打开 Harness UI 后在不超过 3 个主题问题上选择 Keep 或
-Drop，随后确认带增量指导的原生 `/compact` 成功。它
-使用 replay model，不需要 DeepSeek API Key。结束临时 Web 进程时按 Ctrl-C。
+Preview 缺少部分事实。打开 Harness UI 后，先选择名为
+`Context Guardian 预置长对话（请先选择）` 的会话（或选择
+`context-guardian-fixture-long` 工作区中的该会话），再输入 `/compact`。界面应
+最多显示 3 个主题问题；请手动选择 Keep 或 Drop，然后确认带增量指导的原生
+压缩成功。它使用 replay model，不需要 DeepSeek API Key。结束临时 Web 进程时
+按 Ctrl-C。
 
 在没有 answerer 的无头模式中，高风险主题会保守地 Keep，低风险主题接受 Preview。
 

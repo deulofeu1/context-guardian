@@ -103,6 +103,8 @@ def test_input_builder_chunks_at_message_boundaries_and_filters_machine_noise():
     assert is_execution_noise("The image metadata probe found dimensions 100x100.")
     assert is_execution_noise('{"request_id":"abc","arguments":{}}')
     assert is_execution_noise("temporary run UUID 123e4567-e89b-12d3-a456-426614174000")
+    assert is_execution_noise("npm install completed successfully.")
+    assert not is_execution_noise("npm 基础概念旁支讨论")
 
 
 class ChunkAuditProvider:

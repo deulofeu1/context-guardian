@@ -135,10 +135,12 @@ compaction。Python 子进程不会收到 API Key。Node.js 需要 `22.19.0+`，
 env PATH="/path/to/node-22.19/bin:$PATH" npm run dsh-fixture-smoke
 ```
 
-fixture 会预置一段足够长的会话，打开 Harness Web UI，在 SQLite 失败方案上
-暂停询问 Keep/Drop，并验证目标、约束、PostgreSQL 决定、`auth.py` TODO 及有价值
-的失败背景进入原生 compaction Guidance。它使用 replay model，不需要 DeepSeek
-API Key。详细步骤见
+fixture 会预置一段足够长的会话，打开 Harness Web UI，并针对 npm 基础概念旁支
+主题显示一个主题级问题。先选择名为 `Context Guardian 预置长对话（请先选择）`
+的会话，再输入 `/compact` 并手动选择 Keep 或 Drop。fixture 会验证目标、约束、
+PostgreSQL 决定、`auth.py` TODO 以及 SQLite 被放弃的原因进入原生 compaction
+Guidance，同时不会把原始 grep/npm 命令噪声放入 Review UI。它使用 replay model，
+不需要 DeepSeek API Key。详细步骤见
 [`adapters/deepseek-harness/README.md`](adapters/deepseek-harness/README.md)。
 
 ## 工作模式

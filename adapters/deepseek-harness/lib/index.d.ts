@@ -19,6 +19,7 @@ export declare function needsRevision(plan: ReviewPlan, answers: readonly {
  * an external audit, and (when needed) one guided native retry.
  */
 export declare class ContextGuardianCompactionEngine extends BasicCompactionEngine {
+    static inject: string[];
     protected summarize(input: NativeSummarizeInput, agent: Agent, signal?: AbortSignal): Promise<NativeSummarizeResult>;
 }
 export default ContextGuardianCompactionEngine;

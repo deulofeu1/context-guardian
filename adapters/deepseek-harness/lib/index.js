@@ -60,7 +60,18 @@ function reviewQuestionsForUi(plan) {
 async function answerReviewQuestions(ctx, agent, plan, signal) {
     if (plan.review_questions.length === 0)
         return [];
-    const interaction = ctx.get("userQuestions");
+    // `Context.get()` deliberately bypasses a plugin's injected dependency map.
+    // Compaction is an isolated Cordis plugin, so read the injected property
+    // instead; otherwise the Web answerer is present in the host but invisible
+    // to this adapter and every review silently takes the no-UI fallback.
+    let interaction;
+    try {
+        interaction = ctx.userQuestions;
+    }
+    catch (error) {
+        debug(ctx, `userQuestions unavailable; policy fallback ${errorCode(error) ?? "missing"}`);
+        return answersForNoUi(plan);
+    }
     if (interaction === undefined)
         return answersForNoUi(plan);
     try {
@@ -127,6 +138,10 @@ function textFromSummary(result) {
  * an external audit, and (when needed) one guided native retry.
  */
 export class ContextGuardianCompactionEngine extends BasicCompactionEngine {
+    // Compaction runs in its own isolated Cordis scope. Declare the human
+    // question capability explicitly so the Web answerer is visible there;
+    // without this dependency the adapter silently took its no-UI fallback.
+    static inject = [...BasicCompactionEngine.inject, "userQuestions"];
     async summarize(input, agent, signal) {
         const operationSignal = signal ?? new AbortController().signal;
         const preview = await super.summarize(input, agent, signal);

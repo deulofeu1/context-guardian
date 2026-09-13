@@ -33,7 +33,9 @@ MAX_AUDIT_TOPICS = 10
 DEFAULT_AUDIT_INPUT_CHARS = 48_000
 
 _COMMAND = re.compile(
-    r"^\s*(?:[$>]\s*|PS\s*>\s*|(?:npm|pnpm|yarn|pip|uv|grep|rg|find|ls|pwd|cat|head|tail)\s+)",
+    r"^\s*(?:[$>]\s*|PS\s*>\s*|"
+    r"(?:npm|pnpm|yarn|pip|uv)\s+(?:install|update|add|remove|ci|run|publish|audit|test)\b|"
+    r"(?:grep|rg|find|ls|pwd|cat|head|tail)\s+(?:[-/]|[A-Za-z0-9_.]))",
     re.I,
 )
 _COMMAND_INLINE = re.compile(
