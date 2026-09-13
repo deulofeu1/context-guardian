@@ -7,7 +7,7 @@ import sys
 from typing import Any, TextIO
 
 from .inspector import ContextGuardian
-from .models import MemoryCandidate
+from .models import MemoryCandidate, ReviewPlan
 from .providers import HostModelProvider
 
 PROTOCOL_VERSION = 1
@@ -37,8 +37,11 @@ def read_frame(stream: TextIO) -> dict[str, Any]:
 def handle_request(request: dict[str, Any], *, input_stream: TextIO, output_stream: TextIO) -> dict[str, Any]:
     if request.get("protocol_version") != PROTOCOL_VERSION:
         raise ValueError("unsupported protocol version")
+    request_id = request.get("request_id")
+    if not isinstance(request_id, str) or not request_id:
+        raise ValueError("request_id is required")
     operation = request.get("operation")
-    if operation not in {"inspect", "guidance"}:
+    if operation not in {"inspect", "guidance", "audit_preview", "revision_guidance"}:
         raise ValueError("unsupported operation")
 
     provider_name = request.get("provider")
@@ -52,6 +55,25 @@ def handle_request(request: dict[str, Any], *, input_stream: TextIO, output_stre
     if operation == "inspect":
         result = guardian.inspect_with_fallback(request.get("messages", []))
         return {"result": result.model_dump(mode="json")}
+
+    if operation == "audit_preview":
+        result = guardian.audit_preview_with_fallback(
+            request.get("messages", []),
+            preview=str(request.get("preview", "")),
+            previous_summary=str(request.get("previous_summary", "")),
+            retained_context=str(request.get("retained_context", "")),
+            language=request.get("language"),
+            max_review_questions=request.get("max_review_questions"),
+        )
+        return {"result": result.model_dump(mode="json")}
+
+    if operation == "revision_guidance":
+        plan = ReviewPlan.model_validate(request.get("review_plan", {}))
+        guidance = guardian.build_revision_guidance(
+            review_plan=plan,
+            answers=request.get("answers", []),
+        )
+        return {"result": guidance.model_dump(mode="json")}
 
     candidates = [MemoryCandidate.model_validate(candidate) for candidate in request.get("candidates", [])]
     decisions = request.get("decisions", [])

@@ -2,13 +2,17 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
-This adapter adds a human review step before DeepSeek Harness's native context compaction:
+This adapter audits a native Preview before DeepSeek Harness commits context compaction:
 
 ```text
-Harness history → Context Guardian inspection → Keep / Drop review → native Harness summary
+Harness native Preview → Context Guardian Audit → auto correction / max 3 topic questions
+→ incremental guidance → native Harness compaction commit
 ```
 
-It is a decorator over `dsh-compaction-basic`. DeepSeek Harness continues to own compaction range selection, token accounting, durable session events, summary framing, persistence, and the `/compact` command. If Python, the bridge, model extraction, or human review is unavailable, the adapter logs a warning and continues with native compaction.
+It is a decorator over `dsh-compaction-basic`. DeepSeek Harness continues to own compaction range selection, token accounting, durable session events, summary framing, persistence, and the `/compact` command. An accurate Preview is returned without a retry. If Python, the bridge, audit, review UI, or guided retry is unavailable, the adapter logs a warning and accepts the successful Preview. This is experimental and does not guarantee better summaries or agent performance.
+
+The hard review budget is controlled by `CONTEXT_GUARDIAN_MAX_REVIEW_QUESTIONS=0..3`;
+zero disables questions and resolves uncertain topics conservatively.
 
 ## Install
 
@@ -76,7 +80,7 @@ dsh --profile web
 
 The bridge timeout defaults to 120 seconds and can be lowered with
 `CONTEXT_GUARDIAN_TIMEOUT_MS` (up to 120 seconds). With debug enabled, the adapter logs
-when it loads and reports the number of inspection candidates and review candidates.
+when it loads and reports only audit finding and topic-question counts (never raw prompt contents).
 
 Start the web profile and use a sufficiently long session or `/compact`:
 
@@ -84,7 +88,8 @@ Start the web profile and use a sufficiently long session or `/compact`:
 dsh --profile web
 ```
 
-Review candidates appear through Harness's user-question UI. In headless compositions without an answerer, uncertain candidates are conservatively kept. For deterministic local testing, `CONTEXT_GUARDIAN_REVIEW_MODE=keep` or `drop` bypasses the question UI.
+Review topics appear through Harness's user-question UI. In headless compositions
+without an answerer, high-risk topics are kept and low-risk topics accept the Preview.
 
 For a repeatable end-to-end UI test that does not require a long real conversation:
 
@@ -93,9 +98,12 @@ env PATH="/path/to/node-22.19/bin:$PATH" npm run dsh-fixture-smoke
 ```
 
 The fixture creates an isolated Web profile, seeds a sufficiently large conversation,
-opens the Harness UI, and pauses on a reviewable SQLite candidate. Select Keep or Drop,
-then confirm the native `/compact` result. It uses a replay model, so no DeepSeek API
-key is required. Exit the temporary Web process with Ctrl-C when finished.
+deliberately omits selected facts from the replayed native Preview, and opens the
+Harness UI. Select the session named `Context Guardian 预置长对话（请先选择）`
+(or the `context-guardian-fixture-long` workspace), then enter `/compact`. The UI
+should show at most three topic questions; select Keep or Drop and confirm the guided
+native compaction result. It uses a replay model, so no DeepSeek API key is required.
+Exit the temporary Web process with Ctrl-C when finished.
 
 ## Disable or uninstall
 

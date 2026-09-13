@@ -2,15 +2,21 @@
 
 [English](README.md) · 简体中文
 
-这个适配器在 DeepSeek Harness 原生上下文压缩前增加人工审查：
+这个适配器在 DeepSeek Harness 提交原生上下文压缩前审计 Preview：
 
 ```text
-Harness 历史 → Context Guardian 检查 → Keep / Drop 审查 → Harness 原生摘要
+Harness 原生 Preview → Context Guardian 审计 → 自动修正 / 最多 3 个主题问题
+→ 增量指导 → Harness 原生 compaction 提交
 ```
 
 它是 `dsh-compaction-basic` 的装饰器。DeepSeek Harness 继续负责压缩范围、
 token 统计、会话事件、摘要格式、持久化和 `/compact` 命令。如果 Python、桥接、
-模型抽取或人工审查不可用，适配器会记录 warning 并继续原生 compaction。
+模型审计或 UI 不可用，适配器会记录 warning 并接受已经成功的 Preview；如果
+Preview 本身失败才回到 Harness 原生 fallback。这是实验性能力，不保证一定改善
+摘要或 Agent 表现。
+
+可用 `CONTEXT_GUARDIAN_MAX_REVIEW_QUESTIONS=0..3` 设置问题硬上限；设为 0 表示
+不弹窗，对未决主题采用保守处理。
 
 ## 安装
 
@@ -77,7 +83,8 @@ dsh --profile web
 ```
 
 bridge 默认超时为 120 秒，也可以用 `CONTEXT_GUARDIAN_TIMEOUT_MS` 调低（上限为 120 秒）。
-启用 debug 后，适配器会记录已加载，并报告检查候选和需要人工审查的候选数量。
+启用 debug 后，适配器会记录已加载，并只报告审计 finding 和主题问题数量，不输出
+原始 prompt 内容。
 
 ## 交互式验证
 
@@ -93,12 +100,15 @@ dsh --profile web
 env PATH="/path/to/node-22.19/bin:$PATH" npm run dsh-fixture-smoke
 ```
 
-fixture 会创建隔离的 Web profile，预置足够长的会话，打开 Harness UI，并在
-SQLite 候选上暂停，让你选择 Keep 或 Drop，随后确认原生 `/compact` 成功。它
-使用 replay model，不需要 DeepSeek API Key。结束临时 Web 进程时按 Ctrl-C。
+fixture 会创建隔离的 Web profile，预置足够长的会话，并故意让 replay 的原生
+Preview 缺少部分事实。打开 Harness UI 后，先选择名为
+`Context Guardian 预置长对话（请先选择）` 的会话（或选择
+`context-guardian-fixture-long` 工作区中的该会话），再输入 `/compact`。界面应
+最多显示 3 个主题问题；请手动选择 Keep 或 Drop，然后确认带增量指导的原生
+压缩成功。它使用 replay model，不需要 DeepSeek API Key。结束临时 Web 进程时
+按 Ctrl-C。
 
-在没有 answerer 的无头模式中，未决候选会保守地 Keep；也可以用
-`CONTEXT_GUARDIAN_REVIEW_MODE=keep` 或 `drop` 绕过询问 UI。
+在没有 answerer 的无头模式中，高风险主题会保守地 Keep，低风险主题接受 Preview。
 
 ## 禁用或卸载
 

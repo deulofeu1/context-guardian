@@ -4,9 +4,11 @@ import test from "node:test";
 import {
   GuardianBridge,
   normalizePiMessages,
+  preferredLanguage,
   pythonCommand,
   pythonEnvironment,
 } from "../src/bridge.ts";
+import { answersForNoUi, needsRevision } from "../extensions/context-guardian.ts";
 
 const repositoryRoot = resolve(new URL("../../../", import.meta.url).pathname);
 
@@ -23,6 +25,26 @@ test("Pi message normalization keeps stable ids and previous summaries", () => {
   assert.equal(messages[2].id, "pi_message_0002");
   assert.equal(messages[2].is_error, true);
   assert.equal(messages[2].tool_name, "grep");
+});
+
+test("Pi bridge detects language from user messages only", () => {
+  assert.equal(preferredLanguage([
+    { role: "assistant", content: "中文 assistant text", id: "a1" },
+    { role: "user", content: "请保留当前目标和约束", id: "u1" },
+  ]), "zh-CN");
+  assert.equal(preferredLanguage([
+    { role: "assistant", content: "中文输出", id: "a2" },
+    { role: "user", content: "Keep the API compatible", id: "u2" },
+  ]), "en");
+});
+
+test("Pi no-UI resolution follows recommendations and preserves corrections", () => {
+  const plan = {
+    auto_corrections: ["auth.py is incomplete."],
+    review_questions: [{ id: "q1", topic_id: "t1", recommendation: "keep" }],
+  } as any;
+  assert.deepEqual(answersForNoUi(plan), [{ question_id: "q1", topic_id: "t1", action: "keep" }]);
+  assert.equal(needsRevision(plan, [{ action: "drop" }]), true);
 });
 
 test("Pi bridge keeps Windows runtime variables without forwarding provider secrets", () => {

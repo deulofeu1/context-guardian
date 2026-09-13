@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { generateStructuredWithHost } from "./host-model.ts";
-import type { Guidance, GuardianMessage, InspectionResult, MemoryCandidate, ProtocolFrame } from "./types.ts";
+import type { Guidance, GuardianMessage, InspectionResult, MemoryCandidate, ProtocolFrame, ReviewPlan } from "./types.ts";
 
 const PROTOCOL_VERSION = 1;
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -73,6 +73,16 @@ export function normalizePiMessages(messages: readonly any[], previousSummary?: 
   return normalized;
 }
 
+export function preferredLanguage(messages: readonly GuardianMessage[]): "zh-CN" | "en" {
+  const userText = messages
+    .filter((message) => message.role === "user")
+    .map((message) => message.content)
+    .join(" ");
+  const chinese = (userText.match(/[\u4e00-\u9fff]/g) ?? []).length;
+  const latin = (userText.match(/[A-Za-z]/g) ?? []).length;
+  return chinese > latin ? "zh-CN" : "en";
+}
+
 export class GuardianBridge {
   async inspect(
     ctx: ExtensionContext,
@@ -95,9 +105,45 @@ export class GuardianBridge {
     return result as Guidance;
   }
 
+  async auditPreview(
+    ctx: ExtensionContext,
+    messages: GuardianMessage[],
+    preview: string,
+    previousSummary: string | undefined,
+    retainedContext: string,
+    signal: AbortSignal,
+    maxReviewQuestions = 3,
+    timeoutMs = configuredTimeoutMs(),
+  ): Promise<ReviewPlan> {
+    const result = await this.request(ctx, "audit_preview", {
+      messages,
+      preview,
+      previous_summary: previousSummary ?? "",
+      retained_context: retainedContext,
+      max_review_questions: maxReviewQuestions,
+      language: preferredLanguage(messages),
+      provider: "host",
+    }, signal, timeoutMs);
+    return result as ReviewPlan;
+  }
+
+  async revisionGuidance(
+    ctx: ExtensionContext,
+    reviewPlan: ReviewPlan,
+    answers: Array<{ question_id: string; topic_id: string; action: "keep" | "drop" }>,
+    signal: AbortSignal,
+    timeoutMs = configuredTimeoutMs(),
+  ): Promise<Guidance> {
+    const result = await this.request(ctx, "revision_guidance", {
+      review_plan: reviewPlan,
+      answers,
+    }, signal, timeoutMs);
+    return result as Guidance;
+  }
+
   private async request(
     ctx: ExtensionContext,
-    operation: "inspect" | "guidance",
+    operation: "inspect" | "guidance" | "audit_preview" | "revision_guidance",
     body: Record<string, unknown>,
     signal: AbortSignal,
     timeoutMs: number,

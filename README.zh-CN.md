@@ -15,13 +15,15 @@ Keep/Drop 决策变得可检查。
 ```text
 上下文
   ↓
-检查
+宿主原生 Preview
   ↓
-自动保留 / 自动丢弃
+语义审计
   ↓
-人工审查
+自动修正 / 接受 Preview
   ↓
-压缩指导
+最多 3 个主题问题
+  ↓
+增量指导
   ↓
 Agent 原生 Compaction
 ```
@@ -30,7 +32,8 @@ Agent 原生 Compaction
 
 Agent 经常会在压缩时丢掉“为什么某条路径被放弃”。之后它可能重复同一个
 失败方案。Context Guardian 会在宿主 Agent 总结上下文前，找出长期有效的
-目标、约束、决定、失败尝试和未完成工作，同时过滤临时噪声。
+目标、约束、决定、失败尝试和未完成工作，同时过滤临时噪声。人工判断面向主题，
+不再面向孤立句子。
 
 ## 实验性质与项目边界
 
@@ -97,13 +100,14 @@ npm install
 
 ```bash
 context-guardian inspect examples/conversation.json
-context-guardian inspect examples/conversation.json --json
-context-guardian review examples/conversation.json
+context-guardian inspect examples/conversation.json --preview-file native-preview.txt --json
+context-guardian review examples/conversation.json --preview-file native-preview.txt
 context-guardian verify examples/conversation.json
 ```
 
-`verify` 是确定性的发布前 smoke test，会检查关键记忆保留、噪声移除、候选
-ID 稳定性和 Guidance 输出。它很快，但不能代替真实的交互式 Pi 测试。
+`verify` 是确定性的发布前 smoke test，会检查原生 Preview 审计修正、噪声移除、
+ID 稳定性、问题数量上限和 Guidance 输出。它很快，但不能代替 Pi/DSH 的交互式
+fixture 测试。
 
 ### Pi
 
@@ -114,8 +118,10 @@ npm run pi-fixture-smoke
 ```
 
 它会创建一段预置的长对话，打开 Pi UI，并让你手动选择不确定候选的 Keep/Drop，
-所以不需要先进行很长的真实对话。适配器复用 Pi 当前模型和认证信息，Python
-子进程不会收到 API Key。Node.js 需要 `22.19.0+`，Pi 兼容范围是 `0.82.1`。
+所以不需要先进行很长的真实对话。适配器先调用 Pi 原生 compaction 生成未提交的
+Preview，再用当前模型审计；只有需要修正或确认保留主题时才第二次调用原生
+compaction。Python 子进程不会收到 API Key。Node.js 需要 `22.19.0+`，Pi 兼容范围
+是 `0.82.1`。
 
 若要在已有 Pi 会话中直接加载仓库中的扩展，请看
 [`adapters/pi/README.md`](adapters/pi/README.md)。
@@ -129,16 +135,21 @@ npm run pi-fixture-smoke
 env PATH="/path/to/node-22.19/bin:$PATH" npm run dsh-fixture-smoke
 ```
 
-fixture 会预置一段足够长的会话，打开 Harness Web UI，在 SQLite 失败方案上
-暂停询问 Keep/Drop，并验证目标、约束、PostgreSQL 决定、`auth.py` TODO 及有价值
-的失败背景进入原生 compaction Guidance。它使用 replay model，不需要 DeepSeek
-API Key。详细步骤见
+fixture 会预置一段足够长的会话，打开 Harness Web UI，并针对 npm 基础概念旁支
+主题显示一个主题级问题。先选择名为 `Context Guardian 预置长对话（请先选择）`
+的会话，再输入 `/compact` 并手动选择 Keep 或 Drop。fixture 会验证目标、约束、
+PostgreSQL 决定、`auth.py` TODO 以及 SQLite 被放弃的原因进入原生 compaction
+Guidance，同时不会把原始 grep/npm 命令噪声放入 Review UI。它使用 replay model，
+不需要 DeepSeek API Key。详细步骤见
 [`adapters/deepseek-harness/README.md`](adapters/deepseek-harness/README.md)。
 
 ## 工作模式
 
 - 规则模式：本地、确定性、保守，是 CLI 默认模式。
-- Pi 模式：让 Pi 当前模型输出结构化候选，再调用 Pi 原生 compaction。
+- Native 适配器：先得到宿主 Preview，再进行语义审计；必要时把增量修正交给
+  宿主原生 compaction 第二次调用。
+- 默认最多询问 3 个主题问题，可用 `CONTEXT_GUARDIAN_MAX_REVIEW_QUESTIONS=0..3`
+  调低；设为 0 表示不弹窗并采用保守处理。
 - OpenAI 模式：独立 CLI 的可选 Provider，需要时安装 `context-guardian-core[openai]` 并配置 Key。
 
 如果桥接、模型调用或审查 UI 失败，适配器会 fail-open，继续宿主的原生
@@ -180,8 +191,8 @@ Claude Code 和 Codex 不属于当前 `main` 发布版本。之前的实验性�
 
 | 平台 | 级别 | 自动触发 | 宿主模型 | 人工审查 | 保留方式 |
 | --- | --- | --- | --- | --- | --- |
-| Pi | Native | 是 | Pi 当前模型 | Pi UI | 直接传入 native `customInstructions` |
-| DeepSeek Harness | Native | 是 | Harness 当前 `ctx.llm` 路由 | `userQuestions` UI | 直接追加 native 输入消息 |
+| Pi | Native | 是 | Pi 当前模型 | Pi UI，最多 3 个主题 | Preview 审计 + native `customInstructions` 重试 |
+| DeepSeek Harness | Native | 是 | Harness 当前 `ctx.llm` 路由 | `userQuestions`，最多 3 个主题 | Preview 审计 + native 输入重试 |
 
 当前版本聚焦于原生 compaction 集成。统一接口和能力声明见
 [`docs/adapter-contract.md`](docs/adapter-contract.md) 与
@@ -202,7 +213,7 @@ npm run dsh-fixture-smoke
 ```
 
 其中 `pi-smoke` 是适合 CI 的快速无模型检查；`pi-fixture-smoke` 和
-`dsh-fixture-smoke` 是验证完整人工选择流程的重点测试。
+`dsh-fixture-smoke` 是验证 Preview、审计、主题选择和最终原生 compaction 的重点测试。
 
 ## 项目边界
 

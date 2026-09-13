@@ -1,4 +1,4 @@
-"""Command-line interface for local inspection and guidance generation."""
+"""Command-line interface for local inspection and native-preview auditing."""
 
 from __future__ import annotations
 
@@ -17,6 +17,10 @@ from .verification import verify_file
 
 def _load_messages(path: Path) -> list[ConversationMessage]:
     data = json.loads(path.read_text(encoding="utf-8"))
+    return _parse_messages(data)
+
+
+def _parse_messages(data) -> list[ConversationMessage]:
     if isinstance(data, dict):
         data = data.get("messages", [])
     if not isinstance(data, list):
@@ -24,19 +28,29 @@ def _load_messages(path: Path) -> list[ConversationMessage]:
     return [ConversationMessage.model_validate(item) for item in data]
 
 
+def _read_messages_from_stdin() -> list[ConversationMessage]:
+    return _parse_messages(json.load(sys.stdin))
+
+
 def _print_result(result) -> None:
     print("Context Guardian")
-    print(f"{len(result.candidates)} candidates detected.")
+    print(f"{len(result.candidates)} atomic candidates detected.")
     print(f"Auto Keep: {len(result.auto_keep)}")
     print(f"Auto Drop: {len(result.auto_drop)}")
-    print(f"Review: {len(result.review)}")
-    if result.review:
-        print("\nReview candidates:")
-        for candidate in result.review:
-            print(f"\n[{candidate.category.value}] {candidate.content}")
-            print(f"  importance={candidate.importance:.2f} confidence={candidate.confidence:.2f}")
-            if candidate.reason:
-                print(f"  reason: {candidate.reason}")
+    print(f"Legacy candidate review: {len(result.review)}")
+    plan = result.review_plan
+    if plan.overview:
+        print(f"\n{plan.overview}")
+    if plan.auto_corrections:
+        print("\nAutomatic preview corrections:")
+        for item in plan.auto_corrections:
+            print(f"- {item}")
+    if plan.review_questions:
+        print("\nReview topics:")
+        for question in plan.review_questions:
+            print(f"\n{question.title}\n{question.question}")
+            print(question.context)
+            print(question.why_it_matters)
 
 
 def _interactive_decisions(result) -> list[ReviewDecision]:
@@ -66,20 +80,56 @@ def _interactive_decisions(result) -> list[ReviewDecision]:
     return decisions
 
 
+def _interactive_review_answers(plan) -> list[dict[str, str]]:
+    answers: list[dict[str, str]] = []
+    try:
+        tty = open("/dev/tty", "r+", encoding="utf-8", buffering=1)
+    except OSError:
+        tty = None
+
+    output = tty or sys.stdout
+    try:
+        print(f"\n{plan.overview}", file=output)
+        for question in plan.review_questions:
+            print(f"\n{question.title}\n{question.question}", file=output)
+            print(question.context, file=output)
+            print(question.why_it_matters, file=output)
+            print(" / ".join(option.label for option in question.options), file=output)
+            if tty:
+                raw_answer = tty.readline()
+            else:
+                try:
+                    raw_answer = input("> ")
+                except EOFError:
+                    raw_answer = ""
+            action = "drop" if raw_answer.strip().lower() in {"n", "no", "d", "drop", "2"} else "keep"
+            answers.append(
+                {"question_id": question.id, "topic_id": question.topic_id, "action": action}
+            )
+    finally:
+        if tty:
+            tty.close()
+    return answers
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="context-guardian")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    inspect = subparsers.add_parser("inspect", help="inspect a conversation JSON file")
+    inspect = subparsers.add_parser("inspect", help="inspect and optionally audit a conversation")
     inspect.add_argument("conversation", type=Path, nargs="?", help="JSON file; omit for stdin")
     inspect.add_argument("--provider", choices=["rules", "openai"], default="rules")
     inspect.add_argument("--json", action="store_true", dest="as_json")
-    inspect.add_argument("--review", action="store_true", help="interactively decide review candidates")
+    inspect.add_argument("--review", action="store_true", help="interactively review bounded topics")
+    inspect.add_argument("--preview", default="", help="native preview text to audit")
+    inspect.add_argument("--preview-file", type=Path, help="file containing the native preview text")
 
-    review = subparsers.add_parser("review", help="inspect a conversation and review uncertain candidates")
+    review = subparsers.add_parser("review", help="audit a native preview and review uncertain topics")
     review.add_argument("conversation", type=Path, nargs="?", help="JSON file; omit for stdin")
     review.add_argument("--provider", choices=["rules", "openai"], default="rules")
     review.add_argument("--json", action="store_true", dest="as_json")
+    review.add_argument("--preview", default="", help="native preview text to audit")
+    review.add_argument("--preview-file", type=Path, help="file containing the native preview text")
 
     protocol = subparsers.add_parser("bridge", help="run the JSONL adapter bridge")
     protocol.add_argument("--stdio", action="store_true", help="read and write JSONL on stdio")
@@ -128,15 +178,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if verification["passed"] else 1
 
         if args.command == "checkpoint":
-            if args.conversation:
-                messages = _load_messages(args.conversation)
-            else:
-                data = json.load(sys.stdin)
-                items = data.get("messages", []) if isinstance(data, dict) else data
-                if not isinstance(items, list):
-                    raise ValueError('stdin must contain a JSON array or {"messages": [...]}')
-                messages = [ConversationMessage.model_validate(item) for item in items]
-
+            messages = _load_messages(args.conversation) if args.conversation else _read_messages_from_stdin()
             guardian = ContextGuardian(provider=provider_from_name(args.provider))
             result = guardian.inspect_with_fallback(messages)
             if args.review_mode == "interactive":
@@ -165,31 +207,33 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Reviewed {len(decisions)} uncertain candidate(s).")
             return 0
 
-        if args.conversation:
-            messages = _load_messages(args.conversation)
-        else:
-            data = json.load(sys.stdin)
-            items = data.get("messages", []) if isinstance(data, dict) else data
-            if not isinstance(items, list):
-                raise ValueError('stdin must contain a JSON array or {"messages": [...]}')
-            messages = [ConversationMessage.model_validate(item) for item in items]
+        messages = _load_messages(args.conversation) if args.conversation else _read_messages_from_stdin()
         guardian = ContextGuardian(provider=provider_from_name(args.provider))
         result = guardian.inspect(messages)
+        preview = args.preview
+        if args.preview_file:
+            preview = args.preview_file.read_text(encoding="utf-8")
+        plan = guardian.audit_preview_with_fallback(messages, preview=preview)
+        result = result.model_copy(update={"review_plan": plan})
         interactive = getattr(args, "review", False) or args.command == "review"
-        decisions = _interactive_decisions(result) if interactive else []
+        answers = _interactive_review_answers(plan) if interactive else []
+
         if args.as_json:
             payload = result.model_dump(mode="json")
-            if decisions:
-                payload["decisions"] = [decision.model_dump(mode="json") for decision in decisions]
-                payload["guidance"] = guardian.build_guidance(result.candidates, decisions).model_dump(
-                    mode="json"
-                )
+            payload["review_plan"] = plan.model_dump(mode="json")
+            if answers:
+                payload["answers"] = answers
+                payload["revision_guidance"] = guardian.build_revision_guidance(
+                    review_plan=plan,
+                    answers=answers,
+                ).model_dump(mode="json")
             print(json.dumps(payload, ensure_ascii=False, indent=2))
         else:
             _print_result(result)
-            if interactive:
-                guidance = guardian.build_guidance(result.candidates, decisions)
-                print("\n" + guidance.text)
+            if answers:
+                guidance = guardian.build_revision_guidance(review_plan=plan, answers=answers)
+                if guidance.text:
+                    print("\n" + guidance.text)
         return 0
     except (OSError, ProviderError, ValueError, KeyboardInterrupt) as exc:
         print(f"context-guardian: {exc}", file=sys.stderr)
