@@ -114,6 +114,13 @@ export class GuardianBridge {
         }, signal);
         return result;
     }
+    async buildReviewedFacts(ctx, agent, reviewPlan, answers, signal) {
+        const result = await this.request(ctx, agent, "build_reviewed_facts", {
+            review_plan: reviewPlan,
+            answers,
+        }, signal);
+        return result;
+    }
     async request(ctx, agent, operation, body, signal) {
         const command = pythonCommand();
         const child = spawn(command, ["-m", "context_guardian", "bridge", "--stdio"], {

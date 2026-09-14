@@ -6,12 +6,13 @@
 
 ```text
 Harness 原生 Preview → Context Guardian 审计 → 自动修正 / 最多 3 个主题问题
-→ 增量指导 → Harness 原生 compaction 提交
+→ 确定性 Reviewed Facts 区块 → Harness 原生 compaction 提交
 ```
 
 它是 `dsh-compaction-basic` 的装饰器。DeepSeek Harness 继续负责压缩范围、
-token 统计、会话事件、摘要格式、持久化和 `/compact` 命令。如果 Python、桥接、
-模型审计或 UI 不可用，适配器会记录 warning 并接受已经成功的 Preview；如果
+token 统计、会话事件、摘要格式、持久化和 `/compact` 命令。适配器只调用一次原生
+`summarize()`，然后把一个确定性的 Reviewed Facts 内容区块追加到结果。如果 Python、桥接、
+模型审计、UI 或事实生成不可用，适配器会记录 warning 并接受已经成功的 Preview；如果
 Preview 本身失败才回到 Harness 原生 fallback。这是实验性能力，不保证一定改善
 摘要或 Agent 表现。
 
@@ -28,12 +29,12 @@ python3 -m pip install context-guardian-core
 dsh plugin --profile web add context-guardian-deepseek-harness
 ```
 
-适配器与 Python 核心共用带版本的 bridge 合同，必须保持在同一条 `0.2.x` 发布线上。
-复现已发布配置时请固定两边的版本；例如 `0.2.1` 配对安装如下：
+适配器与 Python 核心共用带版本的 bridge 合同，必须保持在同一条 `0.3.x` 发布线上。
+复现已发布配置时请固定两边的版本；例如 `0.3.0` 配对安装如下：
 
 ```bash
-python3 -m pip install "context-guardian-core==0.2.1"
-dsh plugin --profile web add context-guardian-deepseek-harness@0.2.1
+python3 -m pip install "context-guardian-core==0.3.0"
+dsh plugin --profile web add context-guardian-deepseek-harness@0.3.0
 ```
 
 如果旧核心不认识适配器使用的操作，适配器的 fail-open warning 会包含底层 bridge
@@ -115,8 +116,8 @@ fixture 会创建隔离的 Web profile，预置足够长的会话，并故意让
 Preview 缺少部分事实。打开 Harness UI 后，先选择名为
 `Context Guardian 预置长对话（请先选择）` 的会话（或选择
 `context-guardian-fixture-long` 工作区中的该会话），再输入 `/compact`。界面应
-最多显示 3 个主题问题；请手动选择 Keep 或 Drop，然后确认带增量指导的原生
-压缩成功。它使用 replay model，不需要 DeepSeek API Key。结束临时 Web 进程时
+最多显示 3 个主题问题；请手动选择 Keep 或 Drop，然后确认原生 Preview 及其
+确定性 Reviewed Facts 区块。它使用 replay model，不需要 DeepSeek API Key。结束临时 Web 进程时
 按 Ctrl-C。
 
 在没有 answerer 的无头模式中，高风险主题会保守地 Keep，低风险主题接受 Preview。

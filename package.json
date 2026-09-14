@@ -4,6 +4,7 @@
   "workspaces": ["adapters/pi", "adapters/deepseek-harness"],
   "scripts": {
     "typecheck": "npm --workspace adapters/pi run typecheck",
+    "test:pi": "npm --workspace adapters/pi run test",
     "typecheck:dsh": "npm --workspace adapters/deepseek-harness run typecheck",
     "test:dsh": "npm --workspace adapters/deepseek-harness run test",
     "dsh-fixture-smoke": "npm --workspace adapters/deepseek-harness run fixture-smoke",

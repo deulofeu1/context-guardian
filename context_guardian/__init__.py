@@ -16,17 +16,27 @@ from .models import (
     ConversationMessage,
     InspectionResult,
     MemoryCandidate,
+    PreviewFinalization,
     ReviewAction,
     ReviewDecision,
+    ReviewedFact,
+    ReviewedFactsAppendix,
     ReviewOption,
     ReviewPlan,
     ReviewQuestion,
 )
 from .policy import ReviewPolicy
 from .providers import HostModelProvider, ModelProvider, OpenAIProvider
+from .reviewed_facts import (
+    END_MARKER,
+    START_MARKER,
+    append_reviewed_facts,
+    build_reviewed_facts,
+    finalize_preview,
+)
 from .verification import verify_conversation, verify_file
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "CandidateCategory",
@@ -50,10 +60,18 @@ __all__ = [
     "ReviewOption",
     "ReviewPlan",
     "ReviewQuestion",
+    "ReviewedFact",
+    "ReviewedFactsAppendix",
+    "PreviewFinalization",
     "ReviewPolicy",
     "RuleBasedInspector",
     "build_guidance",
     "build_revision_guidance",
+    "build_reviewed_facts",
+    "append_reviewed_facts",
+    "finalize_preview",
+    "START_MARKER",
+    "END_MARKER",
     "build_checkpoint",
     "detect_user_language",
     "is_execution_noise",

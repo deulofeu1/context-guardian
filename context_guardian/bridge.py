@@ -41,7 +41,13 @@ def handle_request(request: dict[str, Any], *, input_stream: TextIO, output_stre
     if not isinstance(request_id, str) or not request_id:
         raise ValueError("request_id is required")
     operation = request.get("operation")
-    if operation not in {"inspect", "guidance", "audit_preview", "revision_guidance"}:
+    if operation not in {
+        "inspect",
+        "guidance",
+        "audit_preview",
+        "revision_guidance",
+        "build_reviewed_facts",
+    }:
         raise ValueError("unsupported operation")
 
     provider_name = request.get("provider")
@@ -74,6 +80,14 @@ def handle_request(request: dict[str, Any], *, input_stream: TextIO, output_stre
             answers=request.get("answers", []),
         )
         return {"result": guidance.model_dump(mode="json")}
+
+    if operation == "build_reviewed_facts":
+        plan = ReviewPlan.model_validate(request.get("review_plan", {}))
+        appendix = guardian.build_reviewed_facts(
+            review_plan=plan,
+            answers=request.get("answers", []),
+        )
+        return {"result": appendix.model_dump(mode="json")}
 
     candidates = [MemoryCandidate.model_validate(candidate) for candidate in request.get("candidates", [])]
     decisions = request.get("decisions", [])

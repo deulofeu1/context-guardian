@@ -8,7 +8,8 @@ import {
   pythonCommand,
   pythonEnvironment,
 } from "../src/bridge.ts";
-import { answersForNoUi, needsRevision } from "../extensions/context-guardian.ts";
+import { answersForNoUi } from "../extensions/context-guardian.ts";
+import { appendReviewedFacts } from "../src/reviewed-facts.ts";
 
 const repositoryRoot = resolve(new URL("../../../", import.meta.url).pathname);
 
@@ -46,13 +47,26 @@ test("Pi bridge detects language from user messages only", () => {
   ]), "zh-CN");
 });
 
-test("Pi no-UI resolution follows recommendations and preserves corrections", () => {
+test("Pi no-UI resolution follows topic recommendations", () => {
   const plan = {
     auto_corrections: ["auth.py is incomplete."],
     review_questions: [{ id: "q1", topic_id: "t1", recommendation: "keep" }],
   } as any;
   assert.deepEqual(answersForNoUi(plan), [{ question_id: "q1", topic_id: "t1", action: "keep" }]);
-  assert.equal(needsRevision(plan, [{ action: "drop" }]), true);
+});
+
+test("Pi appends reviewed facts without a second native summary", () => {
+  const preview = "Native Pi preview";
+  const appendix = {
+    version: "1" as const,
+    language: "en" as const,
+    facts: [{ id: "fact-1", text: "SQLite was abandoned due to concurrency.", origin: "auto_correction" as const }],
+    text: "<!-- context-guardian:reviewed-facts:v1 -->\n- SQLite was abandoned due to concurrency.\n<!-- /context-guardian:reviewed-facts -->",
+  };
+  const finalSummary = appendReviewedFacts(preview, appendix);
+  assert.equal(finalSummary.startsWith(preview), true);
+  assert.equal(finalSummary.includes("SQLite was abandoned"), true);
+  assert.equal(appendReviewedFacts(finalSummary, appendix), finalSummary);
 });
 
 test("Pi bridge keeps Windows runtime variables without forwarding provider secrets", () => {

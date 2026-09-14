@@ -3,7 +3,15 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { generateStructuredWithHost } from "./host-model.ts";
-import type { Guidance, GuardianMessage, InspectionResult, MemoryCandidate, ProtocolFrame, ReviewPlan } from "./types.ts";
+import type {
+  Guidance,
+  GuardianMessage,
+  InspectionResult,
+  MemoryCandidate,
+  ProtocolFrame,
+  ReviewPlan,
+  ReviewedFactsAppendix,
+} from "./types.ts";
 
 const PROTOCOL_VERSION = 1;
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -143,9 +151,23 @@ export class GuardianBridge {
     return result as Guidance;
   }
 
+  async buildReviewedFacts(
+    ctx: ExtensionContext,
+    reviewPlan: ReviewPlan,
+    answers: Array<{ question_id: string; topic_id: string; action: "keep" | "drop" }>,
+    signal: AbortSignal,
+    timeoutMs = configuredTimeoutMs(),
+  ): Promise<ReviewedFactsAppendix> {
+    const result = await this.request(ctx, "build_reviewed_facts", {
+      review_plan: reviewPlan,
+      answers,
+    }, signal, timeoutMs);
+    return result as ReviewedFactsAppendix;
+  }
+
   private async request(
     ctx: ExtensionContext,
-    operation: "inspect" | "guidance" | "audit_preview" | "revision_guidance",
+    operation: "inspect" | "guidance" | "audit_preview" | "revision_guidance" | "build_reviewed_facts",
     body: Record<string, unknown>,
     signal: AbortSignal,
     timeoutMs: number,

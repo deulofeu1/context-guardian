@@ -42,6 +42,7 @@ console.log(`Created ${entries.filter((entry) => entry.type === "message").lengt
 console.log("Pi will open with the pre-seeded Context Guardian fixture.");
 console.log("Run /compact and answer at most three topic-level Keep/Drop prompts.");
 console.log("Expected automatic preservation: goal, API constraint, PostgreSQL decision, SQLite failure, and auth.py TODO.");
+console.log("Expected: exactly one native compaction call; reviewed facts are appended to that Preview.");
 console.log("Expected: commands, logs, paths, hashes, and resolved temporary errors stay out of the UI.");
 console.log("The npm fundamentals side discussion may appear as one bounded question.");
 console.log("Then ask: What is the final database, why was SQLite rejected, and what is the auth.py status?");

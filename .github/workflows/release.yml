@@ -62,6 +62,7 @@ jobs:
       - run: python -m pip install -e '.[dev]'
       - run: npm ci
       - run: npm run typecheck
+      - run: npm run test:pi
       - run: npm run typecheck:dsh
       - run: npm run test:dsh
       # Authentication is provided by GitHub OIDC after each package is configured

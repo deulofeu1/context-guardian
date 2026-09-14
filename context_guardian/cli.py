@@ -216,24 +216,30 @@ def main(argv: list[str] | None = None) -> int:
         plan = guardian.audit_preview_with_fallback(messages, preview=preview)
         result = result.model_copy(update={"review_plan": plan})
         interactive = getattr(args, "review", False) or args.command == "review"
-        answers = _interactive_review_answers(plan) if interactive else []
+        # JSON mode is machine-readable and must never mix prompts into stdout.
+        answers = _interactive_review_answers(plan) if interactive and not args.as_json else []
 
         if args.as_json:
             payload = result.model_dump(mode="json")
             payload["review_plan"] = plan.model_dump(mode="json")
-            if answers:
-                payload["answers"] = answers
-                payload["revision_guidance"] = guardian.build_revision_guidance(
-                    review_plan=plan,
-                    answers=answers,
-                ).model_dump(mode="json")
+            finalization = guardian.finalize_preview(
+                preview=preview,
+                review_plan=plan,
+                answers=answers,
+            )
+            payload["answers"] = answers
+            payload["reviewed_facts"] = finalization.appendix.model_dump(mode="json")
+            payload["preview_finalization"] = finalization.model_dump(mode="json")
             print(json.dumps(payload, ensure_ascii=False, indent=2))
         else:
             _print_result(result)
-            if answers:
-                guidance = guardian.build_revision_guidance(review_plan=plan, answers=answers)
-                if guidance.text:
-                    print("\n" + guidance.text)
+            finalization = guardian.finalize_preview(
+                preview=preview,
+                review_plan=plan,
+                answers=answers,
+            )
+            if finalization.appendix.text:
+                print("\n" + finalization.appendix.text)
         return 0
     except (OSError, ProviderError, ValueError, KeyboardInterrupt) as exc:
         print(f"context-guardian: {exc}", file=sys.stderr)

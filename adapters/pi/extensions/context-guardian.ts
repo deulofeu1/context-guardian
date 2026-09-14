@@ -5,26 +5,25 @@ import {
   type SessionBeforeCompactEvent,
 } from "@earendil-works/pi-coding-agent";
 import { GuardianBridge, normalizePiMessages, preferredLanguage } from "../src/bridge.ts";
+import { appendReviewedFacts } from "../src/reviewed-facts.ts";
 import type { ReviewPlan, ReviewQuestion } from "../src/types.ts";
 
 const bridge = new GuardianBridge();
 const MAX_REVIEW_QUESTIONS = 3;
 type UiLanguage = "zh-CN" | "en";
-type UiMessageKey = "auditUnavailable" | "reviewCancelled" | "revisionUnavailable" | "finalFailed" | "guardianUnavailable";
+type UiMessageKey = "auditUnavailable" | "reviewCancelled" | "factsUnavailable" | "guardianUnavailable";
 
 const UI_MESSAGES: Record<UiLanguage, Record<UiMessageKey, string>> = {
   en: {
     auditUnavailable: "Context Guardian audit unavailable; using the successful native preview.",
     reviewCancelled: "Context Guardian review unavailable; using the successful native preview.",
-    revisionUnavailable: "Context Guardian revision unavailable; using the successful native preview.",
-    finalFailed: "Context Guardian final compaction failed; using the successful native preview.",
+    factsUnavailable: "Context Guardian reviewed facts unavailable; using the successful native preview.",
     guardianUnavailable: "Context Guardian unavailable; continuing with native compaction.",
   },
   "zh-CN": {
     auditUnavailable: "Context Guardian 审计不可用；将使用已经成功生成的原生预览。",
     reviewCancelled: "Context Guardian 人工审查不可用；将使用已经成功生成的原生预览。",
-    revisionUnavailable: "Context Guardian 修正指导不可用；将使用已经成功生成的原生预览。",
-    finalFailed: "Context Guardian 最终压缩失败；将使用已经成功生成的原生预览。",
+    factsUnavailable: "Context Guardian Reviewed Facts 不可用；将使用已经成功生成的原生预览。",
     guardianUnavailable: "Context Guardian 不可用；继续使用宿主原生压缩。",
   },
 };
@@ -35,14 +34,20 @@ function uiMessage(language: UiLanguage, key: UiMessageKey): string {
 
 function auditNotice(plan: ReviewPlan): string {
   return plan.language === "zh-CN"
-    ? `${plan.overview} 自动修正：${String(plan.auto_corrections.length)} 项 · 人工问题：${String(plan.review_questions.length)} 个`
-    : `${plan.overview} Auto corrections: ${String(plan.auto_corrections.length)} · `
+    ? `${plan.overview} 原生压缩调用：1 次 · 自动校正：${String(plan.auto_corrections.length)} 项 · 人工问题：${String(plan.review_questions.length)} 个`
+    : `${plan.overview} Native compaction calls: 1 · Auto corrections: ${String(plan.auto_corrections.length)} · `
       + `Review questions: ${String(plan.review_questions.length)}`;
 }
 
 function configuredReviewBudget(): number {
   const value = Number(process.env.CONTEXT_GUARDIAN_MAX_REVIEW_QUESTIONS ?? MAX_REVIEW_QUESTIONS);
   return Number.isInteger(value) && value >= 0 && value <= MAX_REVIEW_QUESTIONS ? value : MAX_REVIEW_QUESTIONS;
+}
+
+function debug(message: string): void {
+  if (process.env.CONTEXT_GUARDIAN_DEBUG === "1") {
+    console.error(`context guardian: ${message}`);
+  }
 }
 
 function questionBody(question: ReviewQuestion): string {
@@ -60,10 +65,6 @@ export function answersForNoUi(plan: ReviewPlan): Array<{
     topic_id: question.topic_id,
     action: question.recommendation,
   }));
-}
-
-export function needsRevision(plan: ReviewPlan, answers: readonly { action: "keep" | "drop" }[]): boolean {
-  return plan.auto_corrections.length > 0 || answers.some((answer) => answer.action === "keep");
 }
 
 async function answerReviewQuestions(
@@ -160,37 +161,24 @@ async function handleBeforeCompact(event: SessionBeforeCompactEvent, ctx: Extens
       }
       return { compaction: preview };
     }
-    if (!needsRevision(plan, answers)) return { compaction: preview };
-
-    let guidance;
+    let appendix;
     try {
-      guidance = await bridge.revisionGuidance(ctx, plan, answers, event.signal);
+      appendix = await bridge.buildReviewedFacts(ctx, plan, answers, event.signal);
     } catch (error) {
       if (ctx.hasUI) {
-        ctx.ui.notify(uiMessage(uiLanguage, "revisionUnavailable"), "warning");
+        ctx.ui.notify(uiMessage(uiLanguage, "factsUnavailable"), "warning");
       }
       return { compaction: preview };
     }
-    if (!guidance.text) return { compaction: preview };
-
-    try {
-      const customInstructions = [event.customInstructions, guidance.text].filter(Boolean).join("\n\n");
-      const finalResult = await compact(
-        event.preparation,
-        ctx.model,
-        auth.apiKey,
-        headers,
-        customInstructions,
-        event.signal,
-        ctx.thinkingLevel,
-      );
-      return { compaction: finalResult };
-    } catch (error) {
-      if (ctx.hasUI) {
-        ctx.ui.notify(uiMessage(uiLanguage, "finalFailed"), "warning");
-      }
-      return { compaction: preview };
-    }
+    const originalSummary = summaryFromPreview(preview);
+    const finalSummary = appendReviewedFacts(originalSummary, appendix);
+    debug(
+      `native_compaction_calls=1 reviewed_facts_auto=${String(appendix.facts.filter((fact) => fact.origin === "auto_correction").length)} `
+        + `reviewed_facts_human=${String(appendix.facts.filter((fact) => fact.origin === "human_keep").length)} `
+        + `reviewed_facts_total=${String(appendix.facts.length)} preview_changed=${String(finalSummary !== originalSummary)}`,
+    );
+    if (finalSummary === originalSummary) return { compaction: preview };
+    return { compaction: { ...preview, summary: finalSummary } };
   } catch (error) {
     if (ctx.hasUI) {
       ctx.ui.notify(uiMessage(uiLanguage, "guardianUnavailable"), "warning");
