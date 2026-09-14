@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.1 - 2026-09-14 (Source-grounded audit)
+
+- Added explicit host-message provenance so system, plugin planning metadata,
+  compaction bookkeeping, tool calls, and mechanical execution noise cannot become
+  Review topics or Reviewed Facts.
+- Revalidated every provider finding against request-local source IDs and exact
+  evidence snippets, including a second validation before facts are written.
+- Added the Issue #9 regression fixture for planning metadata such as
+  `task_plan.md`, `findings.md`, and `progress.md`.
+- Preserved bounded topic-level review and fail-open native compaction behavior.
+
 ## 0.3.0 - 2026-09-14 (Single native compaction)
 
 - Replaced the optional second native compaction with one native Preview followed by

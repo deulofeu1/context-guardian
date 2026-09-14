@@ -63,6 +63,7 @@ function buildFixtureEvents() {
   let sequence = 0;
   let time = 1_000;
   const events = [];
+  const sourceIds = {};
   const push = (type, data, options = {}) => {
     events.push({ type, seq: SessionSeq(sequence++), time: time++, data, ...options });
   };
@@ -78,6 +79,13 @@ function buildFixtureEvents() {
       source: { kind: "plugin", plugin: "@deepseek-ai/dsh-system-prompt" },
     }),
   }, { surfaceOp: "append" });
+  // This mirrors the planning metadata that triggered Issue #9. It is a real
+  // session event, but its plugin provenance must keep it out of review.
+  push("user/message", createMessage({
+    role: "user",
+    content: [{ type: "text", text: "Creates task_plan.md, findings.md, and progress.md." }],
+    source: { kind: "plugin", plugin: "fixture-planner", form: "notice" },
+  }), { surfaceOp: "append" });
   push("request/header", {
     header: {
       config: { provider: replayProvider, model: replayModel },
@@ -98,6 +106,7 @@ function buildFixtureEvents() {
     "除非并发设计发生变化，否则不要再次尝试被放弃的 SQLite 方案。",
     "下一步：完成 auth.py，然后运行兼容性测试。",
     "当前状态：主要设计已经确定，只剩 callback 和最终验证。",
+    "旁支讨论：npm 的基本用途与当前数据库设计无关。",
   ];
   const noisyTurns = [
     "grep -R OAuth src/",
@@ -111,10 +120,17 @@ function buildFixtureEvents() {
     const step = index + 1;
     if (index > 0) push("step/start", { turn: 1, step });
     const userText = allTurns[index];
-    push("user/message", createUserMessage({
+    const userMessage = createUserMessage({
       content: [{ type: "text", text: userText }],
       source: { kind: "user" },
-    }), { surfaceOp: "append" });
+    });
+    if (userText.startsWith("目标：")) sourceIds.goal = userMessage.id;
+    if (userText.startsWith("约束：")) sourceIds.constraint = userMessage.id;
+    if (userText.startsWith("决定：")) sourceIds.postgres = userMessage.id;
+    if (userText.startsWith("SQLite 曾")) sourceIds.sqlite = userMessage.id;
+    if (userText.startsWith("TODO：")) sourceIds.auth = userMessage.id;
+    if (userText.startsWith("旁支讨论：")) sourceIds.side = userMessage.id;
+    push("user/message", userMessage, { surfaceOp: "append" });
 
     const assistantText = userText.startsWith("grep") || userText.startsWith("npm") || userText.startsWith("rg")
       ? `观察到临时命令输出：${userText}`
@@ -143,7 +159,7 @@ function buildFixtureEvents() {
     source: { kind: "fallback" },
   });
   push("turn/end", { turn: 1, reason: { kind: "completed" } });
-  return events;
+  return { events, sourceIds };
 }
 
 async function seedSession(root, cwd, id) {
@@ -159,8 +175,10 @@ async function seedSession(root, cwd, id) {
   };
   try {
     const handle = await ctx.sessionPersistence.create(header);
-    await handle.append(buildFixtureEvents());
+    const fixture = buildFixtureEvents();
+    await handle.append(fixture.events);
     await handle.close();
+    return fixture.sourceIds;
   } finally {
     await ctx.fiber.dispose();
   }
@@ -214,7 +232,7 @@ async function main() {
     "        tailChars: 1024",
   ].join("\n") + "\n", "utf8");
   const seededSessionId = SessionId(`context-guardian-fixture-${randomUUID()}`);
-  await seedSession(sessionsRoot, cwd, seededSessionId);
+  const sourceIds = await seedSession(sessionsRoot, cwd, seededSessionId);
 
   const inspectionResult = {
     candidates: [
@@ -305,8 +323,8 @@ async function main() {
         suggested_correction: "SQLite 因并发写入导致锁问题而被放弃。",
         importance: 0.9,
         confidence: 0.95,
-        source_message_ids: ["fixture-sqlite"],
-        evidence_snippets: ["SQLite 因并发写入导致锁问题而被放弃。"],
+        source_message_ids: [sourceIds.sqlite],
+        evidence_snippets: ["SQLite 曾被考虑，但因为并发写入导致锁问题而放弃。"],
       },
       {
         id: "finding-auth",
@@ -317,8 +335,20 @@ async function main() {
         suggested_correction: "auth.py 仍未完成，需要实现 OAuth 回调。",
         importance: 0.9,
         confidence: 0.95,
-        source_message_ids: ["fixture-auth"],
-        evidence_snippets: ["auth.py 仍未完成。"],
+        source_message_ids: [sourceIds.auth],
+        evidence_snippets: ["TODO：auth.py 仍未完成，需要实现 OAuth 回调。"],
+      },
+      {
+        id: "finding-side",
+        issue_type: "ambiguous",
+        category: "important_fact",
+        summary: "旁支讨论：npm 的基本用途与当前数据库设计无关。",
+        why_it_matters: "这部分可能与当前主任务无关，但是否保留由用户决定。",
+        suggested_correction: "旁支讨论：npm 的基本用途与当前数据库设计无关。",
+        importance: 0.35,
+        confidence: 0.45,
+        source_message_ids: [sourceIds.side],
+        evidence_snippets: ["旁支讨论：npm 的基本用途与当前数据库设计无关。"],
       },
     ],
     audit_topics: [
@@ -339,7 +369,7 @@ async function main() {
         id: "topic-npm",
         title: "npm 基础概念旁支讨论",
         summary: "你在项目开发过程中讨论过 npm 的基本用途。",
-        finding_ids: [],
+        finding_ids: ["finding-side"],
         impact: 0.35,
         confidence: 0.72,
         relevance_to_main_goal: 0.2,

@@ -1,69 +1,34 @@
 from context_guardian import (
-    AuditDisposition,
-    CandidateCategory,
     ContextGuardian,
     ReviewedFactsAppendix,
     ReviewPlan,
     append_reviewed_facts,
     finalize_preview,
 )
-from context_guardian.models import AuditFinding, AuditTopic, ReviewOption, ReviewQuestion
+from context_guardian.models import AuditFinding
+
+SOURCE_MESSAGES = [
+    {
+        "id": "db-source",
+        "role": "user",
+        "content": "SQLite was abandoned because of concurrency issues.",
+    },
+    {
+        "id": "side-source",
+        "role": "user",
+        "content": "The adapter should stay optional.",
+    },
+]
 
 
 def review_plan() -> ReviewPlan:
-    finding = AuditFinding(
-        id="finding-db",
-        issue_type="missing",
-        category=CandidateCategory.DECISION,
-        summary="SQLite was abandoned because of concurrency issues.",
-        why_it_matters="The database decision affects future implementation.",
-        suggested_correction="SQLite was abandoned because of concurrency issues.",
-        importance=0.9,
-        confidence=0.95,
-    )
-    topic = AuditTopic(
-        id="topic-side",
-        title="Package discussion",
-        summary="The package discussion concluded that the adapter should stay optional.",
-        finding_ids=[],
-        impact=0.5,
-        confidence=0.4,
-        relevance_to_main_goal=0.2,
-        requires_user_preference=True,
-        disposition=AuditDisposition.ASK_USER,
-        recommended_action="drop",
-        suggested_correction="The adapter should stay optional.",
-    )
-    question = ReviewQuestion(
-        id="question-side",
-        topic_id=topic.id,
-        title=topic.title,
-        question="Should the compaction specially preserve this topic?",
-        context="This was a side discussion.",
-        why_it_matters="It may affect a later setup choice.",
-        recommendation="drop",
-        options=[
-            ReviewOption(id="keep", label="Keep key conclusion", description="Append the key conclusion."),
-            ReviewOption(id="drop", label="Do not specially preserve", description="Do not append it."),
-        ],
-    )
-    return ReviewPlan(
-        language="en",
-        findings=[finding],
-        audit_topics=[topic],
-        auto_corrections=[
-            finding.suggested_correction,
-            "SQLite was abandoned because of concurrency issues.",
-        ],
-        review_questions=[question],
-        accepted_omissions=["npm install output"],
-    )
+    return ContextGuardian().audit_preview(SOURCE_MESSAGES, preview="")
 
 
 def test_reviewed_facts_are_deterministic_and_exclude_drop_ui_material():
     guardian = ContextGuardian()
-    first = guardian.build_reviewed_facts(review_plan=review_plan(), answers=[])
-    second = guardian.build_reviewed_facts(review_plan=review_plan(), answers=[])
+    first = guardian.build_reviewed_facts(review_plan=review_plan(), answers=[], messages=SOURCE_MESSAGES)
+    second = guardian.build_reviewed_facts(review_plan=review_plan(), answers=[], messages=SOURCE_MESSAGES)
 
     assert first.model_dump() == second.model_dump()
     assert len(first.facts) == 1
@@ -74,12 +39,15 @@ def test_reviewed_facts_are_deterministic_and_exclude_drop_ui_material():
 
 
 def test_human_keep_adds_only_topic_key_conclusion_and_maps_topic_id():
+    plan = review_plan()
+    question = plan.review_questions[0]
     appendix = ContextGuardian().build_reviewed_facts(
-        review_plan=review_plan(),
-        answers=[{"question_id": "question-side", "topic_id": "topic-side", "action": "keep"}],
+        review_plan=plan,
+        answers=[{"question_id": question.id, "topic_id": question.topic_id, "action": "keep"}],
+        messages=SOURCE_MESSAGES,
     )
     assert [fact.origin for fact in appendix.facts] == ["auto_correction", "human_keep"]
-    assert appendix.facts[1].topic_id == "topic-side"
+    assert appendix.facts[1].topic_id == question.topic_id
     assert appendix.facts[1].text == "The adapter should stay optional."
 
 
@@ -89,7 +57,14 @@ def test_append_is_append_only_and_idempotent():
     finalization = finalize_preview(
         preview=original,
         review_plan=plan,
-        answers=[{"question_id": "question-side", "action": "keep"}],
+        answers=[
+            {
+                "question_id": plan.review_questions[0].id,
+                "topic_id": plan.review_questions[0].topic_id,
+                "action": "keep",
+            }
+        ],
+        messages=SOURCE_MESSAGES,
     )
     assert finalization.original_preview == original
     assert finalization.final_summary.startswith(original)
@@ -162,6 +137,14 @@ def test_no_facts_does_not_change_native_preview():
 
 
 def test_conflicting_corrections_keep_high_confidence_latest_authoritative_fact():
+    conflict_messages = [
+        {"id": "old-source", "role": "user", "content": "SQLite is selected."},
+        {
+            "id": "new-source",
+            "role": "user",
+            "content": "SQLite was abandoned because of concurrency issues.",
+        },
+    ]
     plan = review_plan().model_copy(
         update={
             "findings": [
@@ -174,6 +157,8 @@ def test_conflicting_corrections_keep_high_confidence_latest_authoritative_fact(
                     suggested_correction="SQLite is selected.",
                     importance=0.5,
                     confidence=0.5,
+                    source_message_ids=["old-source"],
+                    evidence_snippets=["SQLite is selected."],
                 ),
                 AuditFinding(
                     id="new",
@@ -184,6 +169,8 @@ def test_conflicting_corrections_keep_high_confidence_latest_authoritative_fact(
                     suggested_correction="SQLite was abandoned because of concurrency issues.",
                     importance=0.99,
                     confidence=0.99,
+                    source_message_ids=["new-source"],
+                    evidence_snippets=["SQLite was abandoned because of concurrency issues."],
                 ),
             ],
             "auto_corrections": [
@@ -192,7 +179,7 @@ def test_conflicting_corrections_keep_high_confidence_latest_authoritative_fact(
             ],
         }
     )
-    appendix = ContextGuardian().build_reviewed_facts(review_plan=plan)
+    appendix = ContextGuardian().build_reviewed_facts(review_plan=plan, messages=conflict_messages)
     assert [fact.text for fact in appendix.facts] == [
         "SQLite was abandoned because of concurrency issues."
     ]

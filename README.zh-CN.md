@@ -78,8 +78,8 @@ DeepSeek Harness 适配器与 Python 核心共用带版本的 bridge 合同，�
 请将核心固定为适配器对应的已发布版本，例如：
 
 ```bash
-python3 -m pip install "context-guardian-core==0.3.0"
-dsh plugin --profile web add context-guardian-deepseek-harness@0.3.0
+python3 -m pip install "context-guardian-core==0.3.1"
+dsh plugin --profile web add context-guardian-deepseek-harness@0.3.1
 ```
 
 如果 bridge 操作不受支持，适配器现在会把底层错误写入 warning，能够直接识别核心与
@@ -157,6 +157,11 @@ PostgreSQL 决定、`auth.py` TODO 以及 SQLite 被放弃的原因进入 Review
 
 Review 文案会跟随用户消息占主导的语言。`OAuth`、`npm`、`public API` 等技术名称会
 保留原样；`Compacting...` 等由 Pi 或 Harness 自己提供的宿主状态文案仍可能是英文。
+
+审计模型的输出不具有自动可信性：每个 finding 必须引用本次 compaction 请求中的
+可用原始消息 ID，证据片段还必须能在对应原文中匹配，之后才可能进入 Review 主题或
+Reviewed Facts。宿主内部规划元数据、system/plugin 消息、工具调用、路径、哈希、日志
+和已解决的机械错误不会进入人工审查界面。
 
 ## 工作模式
 

@@ -43,11 +43,12 @@ def evaluate(messages: list[dict]) -> dict:
             }
             for question in plan.review_questions
         ],
+        messages=messages,
     )
     final_text = finalization.final_summary
     elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
     return {
-        "experiment": "preview-audit-0.3.0",
+        "experiment": "preview-audit-0.3.1",
         "variants": {
             "native_preview": {
                 "critical_memory_retention": _contains_all(native_preview, critical),

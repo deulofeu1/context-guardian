@@ -61,6 +61,7 @@ class ContextGuardianAdapter(Protocol):
         self,
         review_plan: ReviewPlan,
         answers: Sequence[dict],
+        messages: Sequence[ConversationMessage] = (),
     ) -> ReviewedFactsAppendix:
         """Build deterministic facts to append after the native Preview."""
 
@@ -69,6 +70,7 @@ class ContextGuardianAdapter(Protocol):
         preview: str,
         review_plan: ReviewPlan,
         answers: Sequence[dict],
+        messages: Sequence[ConversationMessage] = (),
     ) -> PreviewFinalization:
         """Return an append-only finalization while preserving the native Preview."""
 

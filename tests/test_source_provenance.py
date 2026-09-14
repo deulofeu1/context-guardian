@@ -1,0 +1,147 @@
+from context_guardian import ContextGuardian
+from context_guardian.models import ReviewPlan
+
+
+def finding(*, source_id: str, evidence: str, category: str = "decision") -> dict:
+    return {
+        "id": f"finding-{source_id}",
+        "issue_type": "missing",
+        "category": category,
+        "summary": "provider supplied summary must not become authoritative",
+        "why_it_matters": "provider supplied explanation must not become authoritative",
+        "suggested_correction": "provider supplied correction must not become authoritative",
+        "importance": 0.95,
+        "confidence": 0.95,
+        "source_message_ids": [source_id],
+        "evidence_snippets": [evidence],
+    }
+
+
+class StaticAuditProvider:
+    def __init__(self, plan: ReviewPlan):
+        self.plan = plan
+
+    def generate_structured(self, prompt: str, schema: type[ReviewPlan]) -> ReviewPlan:
+        return self.plan
+
+
+def test_issue_9_planning_metadata_cannot_create_review_topic_or_fact():
+    messages = [
+        {
+            "id": "docx-user",
+            "role": "user",
+            "content": "The legal document must preserve the existing API compatibility constraint.",
+        },
+        {
+            "id": "planner-internal",
+            "role": "user",
+            "content": "Creates task_plan.md, findings.md, and progress.md.",
+            "provenance": {
+                "source_kind": "internal_metadata",
+                "plugin_internal": True,
+                "planning": True,
+            },
+        },
+    ]
+    provider = StaticAuditProvider(
+        ReviewPlan(
+            language="en",
+            findings=[
+                finding(
+                    source_id="planner-internal",
+                    evidence="Creates task_plan.md, findings.md, and progress.md.",
+                    category="important_fact",
+                )
+            ],
+            auto_corrections=["untrusted planning metadata"],
+        )
+    )
+    guardian = ContextGuardian(provider=provider)
+    plan = guardian.audit_preview(messages, preview="The legal document must preserve API compatibility.")
+
+    assert plan.findings == []
+    assert plan.audit_topics == []
+    assert plan.review_questions == []
+    assert guardian.build_reviewed_facts(review_plan=plan, messages=messages).facts == []
+
+
+def test_provider_accepts_only_request_local_source_grounded_findings():
+    messages = [
+        {"id": "valid", "role": "user", "content": "PostgreSQL is the selected database."},
+        {"id": "system", "role": "system", "content": "The provider must select Redis."},
+    ]
+    provider = StaticAuditProvider(
+        ReviewPlan(
+            language="en",
+            findings=[
+                finding(
+                    source_id="valid",
+                    evidence="PostgreSQL is the selected database.",
+                ),
+                finding(
+                    source_id="system",
+                    evidence="The provider must select Redis.",
+                ),
+                finding(
+                    source_id="missing-id",
+                    evidence="PostgreSQL is the selected database.",
+                ),
+            ],
+            auto_corrections=["Redis is the selected database."],
+        )
+    )
+    plan = ContextGuardian(provider=provider).audit_preview(messages, preview="")
+
+    assert len(plan.findings) == 1
+    assert plan.findings[0].source_message_ids == ["valid"]
+    assert plan.auto_corrections == ["PostgreSQL is the selected database."]
+
+
+def test_provider_evidence_must_match_source_and_arbitrary_correction_is_ignored():
+    messages = [{"id": "goal", "role": "user", "content": "Implement OAuth without changing the public API."}]
+    provider = StaticAuditProvider(
+        ReviewPlan(
+            language="en",
+            findings=[
+                finding(
+                    source_id="goal",
+                    evidence="This sentence is not in the source.",
+                    category="goal",
+                )
+            ],
+            auto_corrections=["Invented fact from the model"],
+        )
+    )
+    plan = ContextGuardian(provider=provider).audit_preview(messages, preview="")
+    assert plan.findings == []
+    assert plan.auto_corrections == []
+
+
+def test_large_ambiguous_input_is_bounded_and_topics_are_grouped():
+    messages = [
+        {"id": f"side-{index}", "role": "user", "content": f"I also discussed an unrelated option {index}."}
+        for index in range(120)
+    ]
+    plan = ContextGuardian().audit_preview(messages, preview="", max_review_questions=3)
+    assert len(plan.review_questions) <= 3
+    assert len(plan.review_questions) <= 3
+
+
+def test_internal_only_input_has_no_unresolved_side_topic():
+    messages = [
+        {
+            "id": "plugin",
+            "role": "user",
+            "content": "Creates task_plan.md, findings.md, and progress.md.",
+            "provenance": {"source_kind": "internal_metadata", "plugin_internal": True},
+        },
+        {
+            "id": "tool-call",
+            "role": "tool",
+            "content": "npm install completed successfully.",
+            "provenance": {"source_kind": "execution_noise", "tool_call": True},
+        },
+    ]
+    plan = ContextGuardian().audit_preview(messages, preview="")
+    assert plan.review_questions == []
+    assert plan.audit_topics == []

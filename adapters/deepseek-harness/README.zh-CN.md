@@ -30,11 +30,11 @@ dsh plugin --profile web add context-guardian-deepseek-harness
 ```
 
 适配器与 Python 核心共用带版本的 bridge 合同，必须保持在同一条 `0.3.x` 发布线上。
-复现已发布配置时请固定两边的版本；例如 `0.3.0` 配对安装如下：
+复现已发布配置时请固定两边的版本；例如 `0.3.1` 配对安装如下：
 
 ```bash
-python3 -m pip install "context-guardian-core==0.3.0"
-dsh plugin --profile web add context-guardian-deepseek-harness@0.3.0
+python3 -m pip install "context-guardian-core==0.3.1"
+dsh plugin --profile web add context-guardian-deepseek-harness@0.3.1
 ```
 
 如果旧核心不认识适配器使用的操作，适配器的 fail-open warning 会包含底层 bridge
@@ -79,6 +79,11 @@ export CONTEXT_GUARDIAN_PYTHON=/absolute/path/to/python
 
 适配器不会接收或转发 `DEEPSEEK_API_KEY`。结构化检查会通过 Harness 当前的
 `ctx.llm` 路由执行，由 Harness 负责解析 Provider 凭证。
+
+Provider 审计输出默认不可信。每个 finding 必须引用本次请求中的真实消息，证据片段还
+必须能在对应原文中匹配，才能进入 Review 主题或 Reviewed Facts。宿主规划元数据、
+system/plugin 消息、工具调用、路径、哈希、日志和已解决的机械错误不会进入人工审查。
+这与 Pi 适配器使用同一套来源规则。
 
 如果核心安装在虚拟环境中，启动 Harness 前设置
 `CONTEXT_GUARDIAN_PYTHON=/absolute/path/to/venv/bin/python`。

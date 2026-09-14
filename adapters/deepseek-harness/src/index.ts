@@ -206,7 +206,7 @@ export class ContextGuardianCompactionEngine extends BasicCompactionEngine {
     }
     let appendix;
     try {
-      appendix = await bridge.buildReviewedFacts(this.ctx, agent, plan, answers, operationSignal);
+      appendix = await bridge.buildReviewedFacts(this.ctx, agent, plan, answers, messages, operationSignal);
     } catch (error) {
       this.ctx.logger.warn(uiMessageWithError(uiLanguage, "factsUnavailable", error));
       return preview;

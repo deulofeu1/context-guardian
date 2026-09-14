@@ -145,9 +145,25 @@ def test_bridge_build_reviewed_facts_is_deterministic_and_does_not_call_revision
         "operation": "build_reviewed_facts",
         "review_plan": {
             "language": "en",
-            "auto_corrections": ["PostgreSQL is the selected database."],
+            "findings": [{
+                "id": "finding-db",
+                "issue_type": "missing",
+                "category": "decision",
+                "summary": "PostgreSQL is the selected database.",
+                "why_it_matters": "The database decision matters.",
+                "suggested_correction": "PostgreSQL is the selected database.",
+                "importance": 0.9,
+                "confidence": 0.95,
+                "source_message_ids": ["db"],
+                "evidence_snippets": ["PostgreSQL is the selected database."],
+            }],
         },
         "answers": [],
+        "messages": [{
+            "id": "db",
+            "role": "user",
+            "content": "PostgreSQL is the selected database.",
+        }],
     }
     output_stream = io.StringIO()
     run_protocol(io.StringIO(json.dumps(request) + "\n"), output_stream)

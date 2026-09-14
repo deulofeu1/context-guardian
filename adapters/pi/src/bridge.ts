@@ -11,6 +11,7 @@ import type {
   ProtocolFrame,
   ReviewPlan,
   ReviewedFactsAppendix,
+  MessageProvenance,
 } from "./types.ts";
 
 const PROTOCOL_VERSION = 1;
@@ -62,28 +63,73 @@ export function pythonEnvironment(
 }
 
 function serializeMessage(message: any, index: number): GuardianMessage {
-  const role = message.role === "toolResult" || message.role === "tool_result" ? "tool" : message.role;
-  const content = typeof message.content === "string" ? message.content : JSON.stringify(message.content ?? "");
+  const rawRole = String(message.role ?? "unknown");
+  const role = rawRole === "toolResult" || rawRole === "tool_result" ? "tool" : rawRole;
+  const content = typeof message.content === "string"
+    ? message.content
+    : typeof message.summary === "string"
+      ? message.summary
+      : JSON.stringify(message.content ?? message.output ?? "");
+  const blocks = Array.isArray(message.content) ? message.content : [];
+  const hasToolCall = blocks.some((block: any) => block?.type === "toolCall" || block?.type === "tool-call");
+  let provenance: MessageProvenance;
+  if (rawRole === "user") {
+    provenance = { source_kind: "user_authored", user_authored: true };
+  } else if (rawRole === "assistant" && !hasToolCall) {
+    provenance = { source_kind: "assistant_response", assistant_response: true };
+  } else if (rawRole === "toolResult" || rawRole === "tool_result") {
+    provenance = { source_kind: "tool_result", tool_result: true };
+  } else if (rawRole === "bashExecution" || hasToolCall) {
+    provenance = {
+      source_kind: "execution_noise",
+      tool_call: hasToolCall,
+      bookkeeping: rawRole === "bashExecution",
+    };
+  } else if (["custom", "branchSummary", "compactionSummary"].includes(rawRole)) {
+    provenance = {
+      source_kind: "internal_metadata",
+      plugin_internal: true,
+      planning: rawRole === "custom" && /plan|task/i.test(String(message.customType ?? "")),
+      compaction_metadata: rawRole === "branchSummary" || rawRole === "compactionSummary",
+      bookkeeping: true,
+    };
+  } else {
+    provenance = { source_kind: "internal_metadata", plugin_internal: true };
+  }
   return {
     role,
     content,
     id: `pi_message_${String(index + 1).padStart(4, "0")}`,
     is_error: Boolean(message.isError),
     tool_name: message.toolName,
+    metadata: {
+      pi_role: rawRole,
+      custom_type: message.customType,
+    },
+    provenance,
   };
 }
 
 export function normalizePiMessages(messages: readonly any[], previousSummary?: string): GuardianMessage[] {
   const normalized = messages.map(serializeMessage);
   if (previousSummary) {
-    normalized.unshift({ role: "assistant", content: previousSummary, id: "pi_previous_summary" });
+    normalized.unshift({
+      role: "assistant",
+      content: previousSummary,
+      id: "pi_previous_summary",
+      provenance: {
+        source_kind: "internal_metadata",
+        plugin_internal: true,
+        compaction_metadata: true,
+      },
+    });
   }
   return normalized;
 }
 
 export function preferredLanguage(messages: readonly GuardianMessage[]): "zh-CN" | "en" {
   const userText = messages
-    .filter((message) => message.role === "user")
+    .filter((message) => message.provenance?.user_authored === true || (!message.provenance && message.role === "user"))
     .map((message) => message.content)
     .join(" ");
   const chinese = (userText.match(/[\u4e00-\u9fff]/g) ?? []).length;
@@ -155,12 +201,14 @@ export class GuardianBridge {
     ctx: ExtensionContext,
     reviewPlan: ReviewPlan,
     answers: Array<{ question_id: string; topic_id: string; action: "keep" | "drop" }>,
+    messages: GuardianMessage[],
     signal: AbortSignal,
     timeoutMs = configuredTimeoutMs(),
   ): Promise<ReviewedFactsAppendix> {
     const result = await this.request(ctx, "build_reviewed_facts", {
       review_plan: reviewPlan,
       answers,
+      messages,
     }, signal, timeoutMs);
     return result as ReviewedFactsAppendix;
   }

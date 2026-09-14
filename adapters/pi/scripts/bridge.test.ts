@@ -28,6 +28,20 @@ test("Pi message normalization keeps stable ids and previous summaries", () => {
   assert.equal(messages[2].tool_name, "grep");
 });
 
+test("Pi normalization marks host metadata and execution records as non-evidence", () => {
+  const messages = normalizePiMessages([
+    { role: "custom", customType: "fixture-planning", content: "Creates task_plan.md, findings.md, and progress.md", display: false },
+    { role: "bashExecution", command: "rg --files", output: "mechanical output", exitCode: 0 },
+    { role: "compactionSummary", summary: "previous native metadata", tokensBefore: 100 },
+    { role: "user", content: "The API must remain compatible." },
+  ]);
+  assert.equal(messages[0].provenance?.plugin_internal, true);
+  assert.equal(messages[0].provenance?.planning, true);
+  assert.equal(messages[1].provenance?.source_kind, "execution_noise");
+  assert.equal(messages[2].provenance?.compaction_metadata, true);
+  assert.equal(messages[3].provenance?.user_authored, true);
+});
+
 test("Pi bridge detects language from user messages only", () => {
   assert.equal(preferredLanguage([
     { role: "assistant", content: "中文 assistant text", id: "a1" },
