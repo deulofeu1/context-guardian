@@ -1,7 +1,13 @@
 """Public Python API for Context Guardian."""
 
 from .adapters import AdapterCapabilities, ContextGuardianAdapter, IntegrationLevel
-from .audit import AuditInput, AuditInputBuilder, detect_user_language, is_execution_noise
+from .audit import (
+    AuditInput,
+    AuditInputBuilder,
+    detect_user_language,
+    is_execution_noise,
+    validate_review_plan,
+)
 from .checkpoint import build_checkpoint
 from .guidance import build_guidance, build_revision_guidance
 from .inspector import ContextGuardian, RuleBasedInspector
@@ -16,6 +22,8 @@ from .models import (
     ConversationMessage,
     InspectionResult,
     MemoryCandidate,
+    MessageProvenance,
+    MessageSourceKind,
     PreviewFinalization,
     ReviewAction,
     ReviewDecision,
@@ -36,7 +44,7 @@ from .reviewed_facts import (
 )
 from .verification import verify_conversation, verify_file
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 __all__ = [
     "CandidateCategory",
@@ -48,6 +56,8 @@ __all__ = [
     "AuditTopic",
     "ContextGuardian",
     "ConversationMessage",
+    "MessageProvenance",
+    "MessageSourceKind",
     "CompactionGuidance",
     "ContextCheckpoint",
     "HostModelProvider",
@@ -75,6 +85,7 @@ __all__ = [
     "build_checkpoint",
     "detect_user_language",
     "is_execution_noise",
+    "validate_review_plan",
     "AdapterCapabilities",
     "ContextGuardianAdapter",
     "IntegrationLevel",

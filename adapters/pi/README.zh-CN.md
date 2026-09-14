@@ -50,6 +50,10 @@ Pi 的其他元数据，也不调用第二次模型。Preview 成功后，如果
 失败，则返回这个 Preview；第一次原生调用失败时才交回 Pi 原生 fallback。这是
 实验性能力，不保证一定改善摘要或 Agent 表现。
 
+Provider 的审计输出默认不可信：finding 必须引用本次请求中的可用消息，且每个证据片段
+必须能在对应原文中匹配，才能进入 Review 主题或 Reviewed Facts。Pi 内部规划/compaction
+元数据、工具调用、路径、哈希、日志和已解决的机械错误不会进入人工审查界面。
+
 可用 `CONTEXT_GUARDIAN_MAX_REVIEW_QUESTIONS=0..3` 设置硬上限；设为 0 表示不弹窗，
 对未决主题采用保守处理。
 

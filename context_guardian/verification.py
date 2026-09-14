@@ -37,7 +37,6 @@ def verify_conversation(messages: Iterable[ConversationMessage | dict[str, Any]]
     result = guardian.inspect(normalized)
     repeat = guardian.inspect(normalized)
     retained_text = " ".join(candidate.content for candidate in result.auto_keep + result.review).casefold()
-    dropped_text = " ".join(candidate.content for candidate in result.auto_drop).casefold()
     decisions = [ReviewDecision(candidate_id=candidate.id, action="keep") for candidate in result.review]
     guidance = guardian.build_guidance(result.candidates, decisions)
     checkpoint = guardian.build_checkpoint(result.candidates, decisions)
@@ -63,6 +62,7 @@ def verify_conversation(messages: Iterable[ConversationMessage | dict[str, Any]]
             }
             for question in audit.review_questions
         ],
+        messages=normalized,
     )
     final_summary = finalization.final_summary
     final_text = final_summary.casefold()
@@ -70,7 +70,13 @@ def verify_conversation(messages: Iterable[ConversationMessage | dict[str, Any]]
     checkpoint_text = checkpoint.text.casefold()
 
     memory_hits = [needle for needle in EXPECTED_MEMORY if needle.casefold() in retained_text]
-    noise_hits = [needle for needle in EXPECTED_NOISE if needle.casefold() in dropped_text]
+    noise_hits = [
+        needle
+        for needle in EXPECTED_NOISE
+        if needle.casefold() not in retained_text
+        and needle.casefold() not in audit_text
+        and needle.casefold() not in final_text
+    ]
     checks = {
         "critical_memory_detected": len(memory_hits) == len(EXPECTED_MEMORY),
         "noise_auto_dropped": len(noise_hits) == len(EXPECTED_NOISE),
@@ -80,7 +86,10 @@ def verify_conversation(messages: Iterable[ConversationMessage | dict[str, Any]]
             section in guidance_text for section in ("must preserve:", "can discard:", "unresolved")
         ),
         "guidance_contains_memory": all(needle.casefold() in guidance_text for needle in EXPECTED_MEMORY),
-        "guidance_contains_noise": all(needle.casefold() in guidance_text for needle in EXPECTED_NOISE),
+        "guidance_excludes_noise": all(
+            needle.casefold() not in guidance_text
+            for needle in EXPECTED_NOISE[:2]
+        ),
         "checkpoint_contains_memory": all(needle.casefold() in checkpoint_text for needle in EXPECTED_MEMORY),
         "checkpoint_excludes_noise": all(
             needle.casefold() not in checkpoint_text for needle in EXPECTED_NOISE

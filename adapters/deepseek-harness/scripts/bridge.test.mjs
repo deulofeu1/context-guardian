@@ -84,6 +84,26 @@ test("DeepSeek message normalization keeps stable ids and tool errors", () => {
   assert.equal(messages[1].is_error, true);
 });
 
+test("DeepSeek normalization excludes plugin planning metadata from evidence", () => {
+  const messages = normalizeDeepSeekMessages(undefined, [
+    {
+      id: "plugin-plan",
+      role: "assistant",
+      source: { kind: "plugin", plugin: "fixture-planner", form: "notice" },
+      content: [{ type: "text", text: "Creates task_plan.md, findings.md, and progress.md." }],
+    },
+    {
+      id: "goal",
+      role: "user",
+      source: { kind: "user" },
+      content: [{ type: "text", text: "The API must remain compatible." }],
+    },
+  ]);
+  assert.equal(messages[0].provenance.plugin_internal, true);
+  assert.equal(messages[0].provenance.planning, false);
+  assert.equal(messages[1].provenance.user_authored, true);
+});
+
 test("DeepSeek bridge detects language from user messages only", () => {
   assert.equal(preferredLanguage([
     { role: "assistant", content: "中文 assistant text", id: "a1" },

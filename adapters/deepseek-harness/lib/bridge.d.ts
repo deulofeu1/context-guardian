@@ -26,7 +26,7 @@ export declare class GuardianBridge {
         question_id: string;
         topic_id: string;
         action: "keep" | "drop";
-    }>, signal: AbortSignal): Promise<ReviewedFactsAppendix>;
+    }>, messages: GuardianMessage[], signal: AbortSignal): Promise<ReviewedFactsAppendix>;
     private request;
 }
 //# sourceMappingURL=bridge.d.ts.map

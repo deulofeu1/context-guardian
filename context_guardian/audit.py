@@ -27,55 +27,18 @@ from .models import (
     ReviewQuestion,
 )
 from .policy import ReviewPolicy
+from .provenance import (
+    SourceIndex,
+    evidence_matches_source,
+    is_execution_noise,
+    is_source_allowed,
+    normalize_messages,
+)
 
 MAX_AUDIT_FINDINGS = 20
 MAX_AUDIT_TOPICS = 10
 DEFAULT_AUDIT_INPUT_CHARS = 48_000
 
-_COMMAND = re.compile(
-    r"^\s*(?:[$>]\s*|PS\s*>\s*|"
-    r"(?:npm|pnpm|yarn|pip|uv)\s+(?:install|update|add|remove|ci|run|publish|audit|test)\b|"
-    r"(?:grep|rg|find|ls|pwd|cat|head|tail)\s+(?:[-/]|[A-Za-z0-9_.]))",
-    re.I,
-)
-_COMMAND_INLINE = re.compile(
-    r"\b(?:npm|pnpm|yarn|pip|uv)\s+(?:install|update|add|remove|ci|run|publish|audit)\b|"
-    r"\b(?:grep|rg|find|ls|pwd|cat|head|tail)\s+(?:[-/]|[A-Za-z0-9_.])",
-    re.I,
-)
-_LOG = re.compile(r"^\s*(?:traceback|error:|warning:|npm\s+(?:warn|notice|error)|debug:)\b", re.I)
-_LOG_INLINE = re.compile(
-    r"\b(?:traceback|npm\s+(?:warn|notice|error)|debug:)\b",
-    re.I,
-)
-_MACHINE_PAYLOAD = re.compile(
-    r"^\s*[\[{].*[\]}]\s*$|\"(?:id|type|arguments|payload|request_id|metadata)\"\s*:",
-    re.I | re.S,
-)
-_ATTACHMENT_METADATA = re.compile(
-    r"(?:image|attachment|document|file)\s+(?:metadata|probe|inspection|解包|探测)|"
-    r"(?:mime[- ]type|dimensions?|解包结果|图片元数据|附件元数据)",
-    re.I,
-)
-_PATH_OR_HASH = re.compile(
-    r"(?:^|\s)(?:[A-Za-z]:\\|/(?:Users|private|tmp|var|home)/|\.\.?/)[^\s]*|\b[a-f0-9]{32,}\b",
-    re.I,
-)
-_UUID = re.compile(
-    r"\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b",
-    re.I,
-)
-_PERMISSION = re.compile(
-    r"operations that require approval may ask through the configured answers|"
-    r"capabilit(?:y|ies) (?:are|is) (?:not )?available",
-    re.I,
-)
-_DURABLE = re.compile(
-    r"\b(?:goal|objective|must|required|constraint|requirement|decision|decided|chosen|selected|"
-    r"final|todo|unfinished|incomplete|still need|abandoned|rejected|failed|because|due to|"
-    r"目标|必须|约束|要求|决定|最终|待办|未完成|放弃|失败|因为|由于|导致|改用)\b",
-    re.I,
-)
 _COMPLETION = re.compile(r"\b(?:completed|complete|finished|resolved|已完成|完成|已解决)\b", re.I)
 _TOKEN = re.compile(r"[A-Za-z][A-Za-z0-9_.-]{2,}|[\u4e00-\u9fff]+", re.I)
 _LATIN_WORD = re.compile(r"\b[A-Za-z][A-Za-z0-9_'-]*\b")
@@ -87,6 +50,7 @@ class AuditInput(BaseModel):
     text: str
     message_ids: list[str] = Field(default_factory=list)
     truncated: bool = False
+    source_messages: list[ConversationMessage] = Field(default_factory=list, exclude=True)
 
 
 def detect_user_language(messages: Iterable[ConversationMessage | dict]) -> str:
@@ -97,32 +61,14 @@ def detect_user_language(messages: Iterable[ConversationMessage | dict]) -> str:
     """
 
     normalized = [ConversationMessage.model_validate(message) for message in messages]
-    user_text = " ".join(message.content for message in normalized if message.role == "user")
+    user_text = " ".join(
+        message.content
+        for message in normalized
+        if message.provenance.user_authored
+    )
     chinese = len(re.findall(r"[\u4e00-\u9fff]", user_text))
     latin = len(_LATIN_WORD.findall(user_text))
     return "zh-CN" if chinese > latin else "en"
-
-
-def is_execution_noise(content: str) -> bool:
-    """Return whether text is mechanical execution detail, not a durable conclusion."""
-
-    value = content.strip()
-    if not value:
-        return True
-    if (
-        _COMMAND.search(value)
-        or _COMMAND_INLINE.search(value)
-        or _LOG.search(value)
-        or _LOG_INLINE.search(value)
-        or _PERMISSION.search(value)
-        or _MACHINE_PAYLOAD.search(value)
-        or _ATTACHMENT_METADATA.search(value)
-        or _UUID.search(value)
-    ):
-        return True
-    if _PATH_OR_HASH.search(value) and not _DURABLE.search(value):
-        return True
-    return False
 
 
 class AuditInputBuilder:
@@ -137,10 +83,14 @@ class AuditInputBuilder:
 
     @staticmethod
     def _message_priority(message: ConversationMessage) -> int:
-        if message.role == "user":
+        if message.provenance.attachment_content:
+            return 3
+        if message.provenance.user_authored or message.role == "user":
             return 4
-        if message.role in {"tool", "toolResult", "tool_result", "bashExecution"}:
-            return 0 if is_execution_noise(message.content) else 2
+        if message.provenance.tool_result or message.role in {
+            "tool", "toolResult", "tool_result", "bashExecution"
+        }:
+            return 2 if is_source_allowed(message) else 0
         return 1
 
     @staticmethod
@@ -166,9 +116,10 @@ class AuditInputBuilder:
     def select_messages(
         self, messages: Iterable[ConversationMessage | dict]
     ) -> tuple[list[ConversationMessage], bool]:
-        normalized = [ConversationMessage.model_validate(message) for message in messages]
+        normalized = normalize_messages(messages)
+        eligible = [message for message in normalized if is_source_allowed(message)]
         ranked = sorted(
-            enumerate(normalized),
+            enumerate(eligible),
             key=lambda item: (-self._message_priority(item[1]), item[0]),
         )
         selected: set[int] = set()
@@ -179,8 +130,8 @@ class AuditInputBuilder:
                 continue
             selected.add(index)
             used += block_cost
-        result = [message for index, message in enumerate(normalized) if index in selected]
-        return result, len(result) != len(normalized)
+        result = [message for index, message in enumerate(eligible) if index in selected]
+        return result, len(result) != len(eligible) or len(eligible) != len(normalized)
 
     def build(
         self,
@@ -191,7 +142,7 @@ class AuditInputBuilder:
         retained_context: str = "",
         language: str | None = None,
     ) -> AuditInput:
-        normalized = [ConversationMessage.model_validate(message) for message in messages]
+        normalized = normalize_messages(messages)
         selected, truncated = self.select_messages(normalized)
         fixed = [
             self._complete_field("NATIVE PREVIEW", preview, self.max_chars // 2),
@@ -204,14 +155,8 @@ class AuditInputBuilder:
         source_blocks: list[str] = []
         used = 0
         selected_ids: list[str] = []
-        used_indices: set[int] = set()
         for message in selected:
-            original_index = next(
-                index for index, candidate in enumerate(normalized)
-                if index not in used_indices and candidate == message
-            )
-            used_indices.add(original_index)
-            message_id = self._message_id(message, original_index)
+            message_id = self._message_id(message, 0)
             block = f"[{message.role} id={message_id}]\n{message.content}"
             if used + len(block) + 2 > available:
                 truncated = True
@@ -220,7 +165,12 @@ class AuditInputBuilder:
             selected_ids.append(message_id)
             used += len(block) + 2
         text = fixed_text + "\n\nORIGINAL SOURCE SIGNALS:\n" + "\n\n".join(source_blocks)
-        return AuditInput(text=text, message_ids=selected_ids, truncated=truncated)
+        return AuditInput(
+            text=text,
+            message_ids=selected_ids,
+            truncated=truncated,
+            source_messages=selected,
+        )
 
     def build_chunks(
         self,
@@ -232,7 +182,8 @@ class AuditInputBuilder:
         language: str | None = None,
     ) -> list[AuditInput]:
         """Partition source messages at message boundaries for large audits."""
-        normalized = [ConversationMessage.model_validate(message) for message in messages]
+        normalized = normalize_messages(messages)
+        normalized = [message for message in normalized if is_source_allowed(message)]
         if not normalized:
             return [
                 self.build(
@@ -449,15 +400,24 @@ class PreviewAuditor:
                 if audit_input.truncated
                 else [audit_input]
             )
-            provider_plans = [
-                self.provider.generate_structured(
+            grounded_findings: list[AuditFinding] = []
+            for item in inputs:
+                provider_plan = self.provider.generate_structured(
                     self._provider_prompt(item.text, selected_language, max_review_questions),
                     ReviewPlan,
                 )
-                for item in inputs
-            ]
-            provider_plan = self._merge_provider_plans(provider_plans, selected_language)
-            return self._sanitize_provider_plan(provider_plan, selected_language, max_review_questions)
+                grounded_findings.extend(
+                    self._sanitize_provider_findings(
+                        provider_plan.findings,
+                        SourceIndex.from_messages(item.source_messages),
+                        selected_language,
+                    )
+                )
+            return self._build_grounded_plan(
+                self._deduplicate_findings(grounded_findings),
+                selected_language,
+                max_review_questions,
+            )
         return self._local_audit(
             normalized,
             preview=preview,
@@ -465,6 +425,99 @@ class PreviewAuditor:
             retained_context=retained_context,
             language=selected_language,
             max_review_questions=max_review_questions,
+        )
+
+    @staticmethod
+    def _deduplicate_findings(findings: Iterable[AuditFinding]) -> list[AuditFinding]:
+        result: list[AuditFinding] = []
+        seen: set[tuple[str, str, tuple[str, ...]]] = set()
+        for finding in findings:
+            key = (
+                finding.category.value,
+                finding.summary.casefold(),
+                tuple(sorted(finding.source_message_ids)),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            if len(result) >= MAX_AUDIT_FINDINGS:
+                break
+            result.append(finding)
+        return result
+
+    def _sanitize_provider_findings(
+        self,
+        findings: Iterable[AuditFinding],
+        source_index: SourceIndex,
+        language: str,
+    ) -> list[AuditFinding]:
+        """Accept only findings grounded in this request's real source messages."""
+
+        sanitized: list[AuditFinding] = []
+        for finding in findings:
+            if not evidence_matches_source(
+                finding.source_message_ids,
+                finding.evidence_snippets,
+                source_index,
+            ):
+                continue
+            evidence = _short(finding.evidence_snippets[0], 180)
+            if not evidence:
+                continue
+            why = _localized(
+                language,
+                "这条来源明确的项目状态可能影响后续实现。",
+                "This explicit source-backed project state may affect future implementation.",
+            )
+            sanitized.append(
+                finding.model_copy(
+                    update={
+                        "summary": evidence,
+                        "why_it_matters": why,
+                        # Never write an arbitrary provider correction.  The
+                        # only accepted correction is exact source evidence.
+                        "suggested_correction": evidence,
+                        "evidence_snippets": [evidence],
+                    }
+                )
+            )
+        return sanitized
+
+    def _build_grounded_plan(
+        self,
+        findings: list[AuditFinding],
+        language: str,
+        max_review_questions: int,
+    ) -> ReviewPlan:
+        topics = self._apply_review_budget(
+            self._make_topics(findings, language)[:MAX_AUDIT_TOPICS],
+            max_review_questions,
+        )
+        questions = self._make_questions(topics, language, max_review_questions)
+        topic_by_finding = {
+            finding_id: topic
+            for topic in topics
+            for finding_id in topic.finding_ids
+        }
+        auto_corrections = _unique(
+            finding.suggested_correction
+            for finding in findings
+            if topic_by_finding.get(finding.id) is not None
+            and topic_by_finding[finding.id].disposition is AuditDisposition.AUTO_CORRECT
+        )
+        return ReviewPlan(
+            language=language,
+            overview=self._overview(language, len(auto_corrections), len(questions)),
+            auto_preserve_summary=_localized(
+                language,
+                "明确的目标、约束、决定和未完成工作会自动审计并保留。",
+                "Explicit goals, constraints, decisions, and unfinished work are audited "
+                "and preserved automatically.",
+            ),
+            findings=findings,
+            audit_topics=topics,
+            auto_corrections=auto_corrections,
+            review_questions=questions,
         )
 
     @staticmethod
@@ -482,80 +535,6 @@ Return the ReviewPlan schema exactly; auto_corrections must be incremental sourc
 corrections, not a complete summary.
 
 {text}"""
-
-    @staticmethod
-    def _merge_provider_plans(plans: list[ReviewPlan], language: str) -> ReviewPlan:
-        """Merge independently audited message chunks without exceeding model limits."""
-
-        if not plans:
-            return ReviewPlan(language=language)
-
-        findings: list[AuditFinding] = []
-        finding_keys: set[str] = set()
-        topic_by_key: dict[tuple[str, str], AuditTopic] = {}
-        topic_source_ids: dict[tuple[str, str], set[str]] = defaultdict(set)
-        questions: list[ReviewQuestion] = []
-        question_keys: set[tuple[str, str]] = set()
-        corrections: list[str] = []
-        omissions: list[str] = []
-
-        for plan in plans:
-            for finding in plan.findings:
-                key = f"{finding.category.value}|{finding.summary.casefold()}"
-                if key not in finding_keys and len(findings) < MAX_AUDIT_FINDINGS:
-                    finding_keys.add(key)
-                    findings.append(finding)
-            for topic in plan.audit_topics:
-                key = (topic.title.casefold(), topic.summary.casefold())
-                topic_source_ids[key].add(topic.id)
-                if key not in topic_by_key:
-                    digest = hashlib.sha1((topic.title + topic.summary).encode()).hexdigest()[:12]
-                    topic_by_key[key] = topic.model_copy(
-                        update={"id": f"audit_topic_{digest}"}
-                    )
-            corrections.extend(plan.auto_corrections)
-            omissions.extend(plan.accepted_omissions)
-
-        topics = list(topic_by_key.values())
-        topics.sort(key=lambda item: (-item.impact, item.id))
-        topics = topics[:MAX_AUDIT_TOPICS]
-        topic_key_by_source_id = {
-            source_id: key
-            for key, source_ids in topic_source_ids.items()
-            for source_id in source_ids
-        }
-        kept_topic_ids = {topic.id for topic in topics}
-        for plan in plans:
-            for question in plan.review_questions:
-                key = topic_key_by_source_id.get(question.topic_id)
-                topic = topic_by_key.get(key) if key else None
-                if topic is None or topic.id not in kept_topic_ids:
-                    continue
-                question_key = (topic.id, question.title.casefold())
-                if question_key in question_keys:
-                    continue
-                question_keys.add(question_key)
-                questions.append(question.model_copy(update={"topic_id": topic.id}))
-
-        topic_by_id = {topic.id: topic for topic in topics}
-        questions.sort(
-            key=lambda item: (
-                -PreviewAuditor._review_value(topic_by_id[item.topic_id]),
-                item.id,
-            )
-        )
-        return ReviewPlan(
-            language=language,
-            overview=next((plan.overview for plan in plans if plan.overview), ""),
-            auto_preserve_summary=next(
-                (plan.auto_preserve_summary for plan in plans if plan.auto_preserve_summary), ""
-            ),
-            findings=findings,
-            audit_topics=topics,
-            auto_corrections=_unique(corrections)[:MAX_AUDIT_FINDINGS],
-            accepted_omissions=_unique(omissions)[:MAX_AUDIT_FINDINGS],
-            review_questions=questions[:3],
-        )
 
     def _local_audit(
         self,
@@ -593,34 +572,12 @@ corrections, not a complete summary.
                     _localized(language, "未列入高优先级审计的旁支内容", "Lower-priority side context")
                 )
 
-        findings = findings[:MAX_AUDIT_FINDINGS]
-        topics = self._apply_review_budget(
-            self._make_topics(findings, language)[:MAX_AUDIT_TOPICS],
+        plan = self._build_grounded_plan(
+            self._deduplicate_findings(findings),
+            language,
             max_review_questions,
         )
-        questions = self._make_questions(topics, language, max_review_questions)
-        auto_corrections = _unique(
-            finding.suggested_correction
-            for finding in findings
-            if next((topic for topic in topics if finding.id in topic.finding_ids), None)
-            and next(topic for topic in topics if finding.id in topic.finding_ids).disposition
-            is AuditDisposition.AUTO_CORRECT
-        )
-        return ReviewPlan(
-            language=language,
-            overview=self._overview(language, len(auto_corrections), len(questions)),
-            auto_preserve_summary=_localized(
-                language,
-                "明确的目标、约束、决定和未完成工作会自动审计并保留。",
-                "Explicit goals, constraints, decisions, and unfinished work are audited "
-                "and preserved automatically.",
-            ),
-            findings=findings,
-            audit_topics=topics,
-            auto_corrections=auto_corrections,
-            accepted_omissions=_unique(accepted),
-            review_questions=questions,
-        )
+        return plan.model_copy(update={"accepted_omissions": _unique(accepted)})
 
     def _finding(
         self,
@@ -855,49 +812,6 @@ corrections, not a complete summary.
             )
         return _localized(language, zh, en)
 
-    @staticmethod
-    def _sanitize_provider_plan(plan: ReviewPlan, language: str, budget: int) -> ReviewPlan:
-        topics = PreviewAuditor._apply_review_budget(plan.audit_topics[:MAX_AUDIT_TOPICS], budget)
-        questions = [
-            question
-            for question in plan.review_questions
-            if not is_execution_noise(
-                " ".join(
-                    (
-                        question.title,
-                        question.question,
-                        question.context,
-                        question.why_it_matters,
-                        *(option.label + " " + option.description for option in question.options),
-                    )
-                )
-            )
-        ][: max(0, min(3, budget))]
-        allowed = {topic.id for topic in topics}
-        questions = [question for question in questions if question.topic_id in allowed]
-        auto_corrections = [
-            item
-            for item in plan.auto_corrections[:MAX_AUDIT_FINDINGS]
-            if not is_execution_noise(item)
-        ]
-        for topic in topics:
-            if topic.disposition is AuditDisposition.AUTO_CORRECT and topic.suggested_correction:
-                auto_corrections.append(topic.suggested_correction)
-        return plan.model_copy(
-            update={
-                "language": language,
-                "findings": plan.findings[:MAX_AUDIT_FINDINGS],
-                "audit_topics": topics,
-                "auto_corrections": _unique(_short(item) for item in auto_corrections)[:MAX_AUDIT_FINDINGS],
-                "accepted_omissions": [
-                    _short(item)
-                    for item in plan.accepted_omissions[:MAX_AUDIT_FINDINGS]
-                    if not is_execution_noise(item)
-                ],
-                "review_questions": questions,
-            }
-        )
-
 
 def _unique(items: Iterable[str]) -> list[str]:
     result: list[str] = []
@@ -908,3 +822,38 @@ def _unique(items: Iterable[str]) -> list[str]:
             seen.add(value.casefold())
             result.append(value)
     return result
+
+
+def validate_review_plan(
+    review_plan: ReviewPlan,
+    messages: Iterable[ConversationMessage | dict] | None,
+    *,
+    max_review_questions: int = 3,
+) -> ReviewPlan:
+    """Re-ground a plan against the original request-local source snapshot.
+
+    This is intentionally deterministic and provider-free.  It is used again
+    immediately before facts are written so a host cannot mutate a plan after
+    the audit and smuggle an unsupported correction into the native preview.
+    """
+
+    plan = ReviewPlan.model_validate(review_plan)
+    if not messages:
+        return ReviewPlan(language=plan.language)
+    from .inspector import RuleBasedInspector
+
+    auditor = PreviewAuditor(
+        policy=ReviewPolicy(),
+        rule_inspector=RuleBasedInspector(),
+    )
+    normalized = normalize_messages(messages)
+    findings = auditor._sanitize_provider_findings(
+        plan.findings,
+        SourceIndex.from_messages(normalized),
+        plan.language,
+    )
+    return auditor._build_grounded_plan(
+        auditor._deduplicate_findings(findings),
+        plan.language,
+        max_review_questions,
+    )

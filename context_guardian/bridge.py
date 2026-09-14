@@ -86,6 +86,7 @@ def handle_request(request: dict[str, Any], *, input_stream: TextIO, output_stre
         appendix = guardian.build_reviewed_facts(
             review_plan=plan,
             answers=request.get("answers", []),
+            messages=request.get("messages", []),
         )
         return {"result": appendix.model_dump(mode="json")}
 

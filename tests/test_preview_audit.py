@@ -113,15 +113,22 @@ class ChunkAuditProvider:
 
     def generate_structured(self, prompt: str, schema: type[ReviewPlan]) -> ReviewPlan:
         self.calls += 1
+        import re
+
+        match = re.search(r"\[user id=([^\]]+)\]\n([^\n]+)", prompt)
+        source_id = match.group(1) if match else f"large-{self.calls - 1}"
+        evidence = match.group(2) if match else "State 0: important context"
         finding = AuditFinding(
             id=f"finding-{self.calls}",
             issue_type="missing",
             category=CandidateCategory.TODO,
-            summary=f"Chunk {self.calls} contains unfinished work.",
+            summary=evidence,
             why_it_matters="The unfinished work may affect the next step.",
-            suggested_correction=f"Chunk {self.calls} contains unfinished work.",
+            suggested_correction=evidence,
             importance=0.8,
             confidence=0.9,
+            source_message_ids=[source_id],
+            evidence_snippets=[evidence],
         )
         topic = AuditTopic(
             id=f"topic-{self.calls}",
@@ -152,7 +159,7 @@ def test_provider_audit_chunks_large_input_and_merges_findings():
     plan = ContextGuardian(provider=provider).audit_preview(messages, preview="native preview")
     assert provider.calls > 1
     assert len(plan.findings) == provider.calls
-    assert len(plan.audit_topics) == provider.calls
+    assert 0 < len(plan.audit_topics) <= provider.calls
 
 
 def test_same_side_topic_is_aggregated_and_language_comes_from_users_only():

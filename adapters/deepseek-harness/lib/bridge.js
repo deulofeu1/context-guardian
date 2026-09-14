@@ -61,19 +61,46 @@ export function normalizeDeepSeekMessages(_system, messages) {
         if (!content)
             continue;
         const error = blocks.some((block) => block?.type === "tool-result" && block.isError === true);
+        const hasToolCall = blocks.some((block) => block?.type === "tool-call");
+        let provenance;
+        if (sourceKind === "user" || sourceKind === "user-rpc" || (role === "user" && !sourceKind)) {
+            provenance = { source_kind: "user_authored", user_authored: true };
+        }
+        else if (sourceKind === "tool") {
+            provenance = { source_kind: "tool_result", tool_result: true };
+        }
+        else if (["plugin", "goal", "skill-invocation", "agent-message", "subagent-settled", "team-message", "session-reference"].includes(sourceKind)) {
+            provenance = {
+                source_kind: "internal_metadata",
+                plugin_internal: sourceKind === "plugin" || sourceKind === "skill-invocation",
+                planning: ["goal", "skill-invocation", "agent-message", "team-message"].includes(sourceKind),
+                compaction_metadata: sourceKind === "session-reference",
+                bookkeeping: ["subagent-settled", "session-reference"].includes(sourceKind),
+            };
+        }
+        else if ((sourceKind === "model" || role === "assistant") && !hasToolCall) {
+            provenance = { source_kind: "assistant_response", assistant_response: true };
+        }
+        else if (hasToolCall) {
+            provenance = { source_kind: "execution_noise", tool_call: true };
+        }
+        else {
+            provenance = { source_kind: "internal_metadata", plugin_internal: true };
+        }
         result.push({
             role,
             content,
             id: String(message.id ?? `dsh_message_${String(index + 1).padStart(4, "0")}`),
             is_error: error,
             metadata: { source: sourceKind },
+            provenance,
         });
     }
     return result;
 }
 export function preferredLanguage(messages) {
     const userText = messages
-        .filter((message) => message.role === "user")
+        .filter((message) => message.provenance?.user_authored === true || (!message.provenance && message.role === "user"))
         .map((message) => message.content)
         .join(" ");
     const chinese = (userText.match(/[\u4e00-\u9fff]/g) ?? []).length;
@@ -114,10 +141,11 @@ export class GuardianBridge {
         }, signal);
         return result;
     }
-    async buildReviewedFacts(ctx, agent, reviewPlan, answers, signal) {
+    async buildReviewedFacts(ctx, agent, reviewPlan, answers, messages, signal) {
         const result = await this.request(ctx, agent, "build_reviewed_facts", {
             review_plan: reviewPlan,
             answers,
+            messages,
         }, signal);
         return result;
     }

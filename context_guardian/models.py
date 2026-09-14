@@ -5,7 +5,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class CandidateCategory(StrEnum):
@@ -27,6 +27,38 @@ class ReviewAction(StrEnum):
     KEEP = "keep"
     DROP = "drop"
     REVIEW = "review"
+
+
+class MessageSourceKind(StrEnum):
+    """Provenance categories exchanged by host adapters and the Core."""
+
+    UNKNOWN = "unknown"
+    USER_AUTHORED = "user_authored"
+    ASSISTANT_RESPONSE = "assistant_response"
+    ATTACHMENT_CONTENT = "attachment_content"
+    TOOL_RESULT = "tool_result"
+    DURABLE_TOOL_RESULT = "durable_tool_result"
+    EXECUTION_NOISE = "execution_noise"
+    INTERNAL_METADATA = "internal_metadata"
+
+
+class MessageProvenance(BaseModel):
+    """Additive source metadata used to decide whether a message is evidence."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_kind: MessageSourceKind = MessageSourceKind.UNKNOWN
+    user_authored: bool = False
+    assistant_response: bool = False
+    attachment_content: bool = False
+    tool_call: bool = False
+    tool_result: bool = False
+    system: bool = False
+    developer: bool = False
+    plugin_internal: bool = False
+    planning: bool = False
+    compaction_metadata: bool = False
+    bookkeeping: bool = False
 
 
 class AuditIssueType(StrEnum):
@@ -53,6 +85,7 @@ class ConversationMessage(BaseModel):
     tool_name: str | None = None
     is_error: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
+    provenance: MessageProvenance = Field(default_factory=MessageProvenance)
 
     @field_validator("content", mode="before")
     @classmethod
@@ -68,6 +101,51 @@ class ConversationMessage(BaseModel):
                     parts.append(block)
             return "\n".join(parts)
         return str(value)
+
+    @model_validator(mode="before")
+    @classmethod
+    def infer_legacy_provenance(cls, value: Any) -> Any:
+        """Keep the pre-0.3.1 public message shape source-safe by default.
+
+        Adapters provide explicit provenance for host-specific messages.  Direct
+        Core callers that only provide the historical role/content shape retain
+        the old user/assistant behavior; every other unknown role is treated as
+        internal metadata and cannot become evidence.
+        """
+
+        if not isinstance(value, dict):
+            return value
+        existing = value.get("provenance")
+        if existing is not None:
+            existing_kind = (
+                existing.get("source_kind")
+                if isinstance(existing, dict)
+                else getattr(existing, "source_kind", None)
+            )
+            if existing_kind not in {None, MessageSourceKind.UNKNOWN, MessageSourceKind.UNKNOWN.value}:
+                return value
+        role = str(value.get("role", ""))
+        if role == "user":
+            inferred = {
+                "source_kind": MessageSourceKind.USER_AUTHORED,
+                "user_authored": True,
+            }
+        elif role == "assistant":
+            inferred = {
+                "source_kind": MessageSourceKind.ASSISTANT_RESPONSE,
+                "assistant_response": True,
+            }
+        elif role in {"tool", "toolResult", "tool_result", "bashExecution"}:
+            inferred = {
+                "source_kind": MessageSourceKind.TOOL_RESULT,
+                "tool_result": True,
+            }
+        else:
+            inferred = {
+                "source_kind": MessageSourceKind.INTERNAL_METADATA,
+                "plugin_internal": True,
+            }
+        return {**value, "provenance": inferred}
 
 
 class MemoryCandidate(BaseModel):

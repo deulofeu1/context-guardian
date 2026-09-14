@@ -106,6 +106,33 @@ export function createSession(sourcePath, tempDir, fillerTurns = 320) {
     }
   }
 
+  // Host-internal records that reproduce the provenance edge case from Issue
+  // #9. The Pi adapter must carry them to the Core as metadata, never as user
+  // evidence or Review questions.
+  append({
+    role: "custom",
+    customType: "fixture-planning",
+    content: "Creates task_plan.md, findings.md, and progress.md.",
+    display: false,
+    details: { internal: true },
+    timestamp: Date.now() + sequence * 1000,
+  });
+  append({
+    role: "bashExecution",
+    command: "rg --files | head -50",
+    output: "mechanical fixture output",
+    exitCode: 0,
+    cancelled: false,
+    truncated: false,
+    timestamp: Date.now() + sequence * 1000,
+  });
+  append({
+    role: "compactionSummary",
+    summary: "Internal previous compaction metadata for the fixture.",
+    tokensBefore: 100,
+    timestamp: Date.now() + sequence * 1000,
+  });
+
   // A deliberately weak, user-authored side topic gives the native Preview
   // something that may reasonably require one bounded human decision. It is
   // never a raw command or tool log and is safe to omit from project memory.

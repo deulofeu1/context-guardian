@@ -1,3 +1,18 @@
+export type MessageSourceKind = "unknown" | "user_authored" | "assistant_response" | "attachment_content" | "tool_result" | "durable_tool_result" | "execution_noise" | "internal_metadata";
+export interface MessageProvenance {
+    source_kind: MessageSourceKind;
+    user_authored?: boolean;
+    assistant_response?: boolean;
+    attachment_content?: boolean;
+    tool_call?: boolean;
+    tool_result?: boolean;
+    system?: boolean;
+    developer?: boolean;
+    plugin_internal?: boolean;
+    planning?: boolean;
+    compaction_metadata?: boolean;
+    bookkeeping?: boolean;
+}
 export interface GuardianMessage {
     role: string;
     content: string;
@@ -5,6 +20,7 @@ export interface GuardianMessage {
     tool_name?: string;
     is_error?: boolean;
     metadata?: Record<string, unknown>;
+    provenance?: MessageProvenance;
 }
 export interface MemoryCandidate {
     id: string;

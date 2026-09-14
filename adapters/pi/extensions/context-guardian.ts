@@ -163,7 +163,7 @@ async function handleBeforeCompact(event: SessionBeforeCompactEvent, ctx: Extens
     }
     let appendix;
     try {
-      appendix = await bridge.buildReviewedFacts(ctx, plan, answers, event.signal);
+      appendix = await bridge.buildReviewedFacts(ctx, plan, answers, messages, event.signal);
     } catch (error) {
       if (ctx.hasUI) {
         ctx.ui.notify(uiMessage(uiLanguage, "factsUnavailable"), "warning");

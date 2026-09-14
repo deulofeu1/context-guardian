@@ -1,6 +1,6 @@
 # Reviewed Facts appendix
 
-Context Guardian 0.3.0 does not regenerate a host summary. Pi and DeepSeek Harness
+Context Guardian 0.3.1 does not regenerate a host summary. Pi and DeepSeek Harness
 call their native compactor once, keep the returned Preview uncommitted, and run the
 audit and bounded human review against that Preview. The Core then produces a
 versioned appendix using deterministic local code.
@@ -40,6 +40,7 @@ finalization = guardian.finalize_preview(
     preview=native_preview,
     review_plan=plan,
     answers=[{"question_id": "question-1", "action": "keep"}],
+    messages=messages,
 )
 ```
 

@@ -84,8 +84,8 @@ leaving an older Python core installed. For a reproducible installation, pin the
 core to the adapter's published version, for example:
 
 ```bash
-python3 -m pip install "context-guardian-core==0.3.0"
-dsh plugin --profile web add context-guardian-deepseek-harness@0.3.0
+python3 -m pip install "context-guardian-core==0.3.1"
+dsh plugin --profile web add context-guardian-deepseek-harness@0.3.1
 ```
 
 If a bridge operation is unsupported, the adapter now includes the underlying
@@ -164,6 +164,12 @@ block to the native result. Harness remains responsible for session persistence 
 transaction. Web sessions use the selected agent preset, so the preset must contain
 the Context Guardian compaction row.
 
+The audit model is untrusted and cannot promote a claim by itself. Provider findings
+must cite an eligible message from the current compaction request, and each evidence
+snippet is matched against that source before it can become a Review topic or Reviewed
+Fact. Host-internal planning metadata, system/plugin messages, tool calls, paths,
+hashes, logs, and resolved mechanical errors are excluded from the review surface.
+
 ## Modes
 
 - Rules mode is local, deterministic, conservative, and the default for the CLI.
@@ -231,11 +237,13 @@ and capability declaration.
 from context_guardian import ContextGuardian
 
 guardian = ContextGuardian()
+messages = [{"role": "user", "content": "The project goal is ..."}]
 plan = guardian.audit_preview(messages, preview="the host's native preview text")
 finalization = guardian.finalize_preview(
     preview="the host's native preview text",
     review_plan=plan,
     answers=[],
+    messages=messages,
 )
 print(plan.review_questions)
 print(finalization.final_summary)

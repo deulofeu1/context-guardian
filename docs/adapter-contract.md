@@ -18,8 +18,8 @@ class ContextGuardianAdapter:
     collect_context() -> Sequence[ConversationMessage]
     inspect(messages) -> InspectionResult  # legacy/internal atomic API
     audit_preview(messages, preview) -> ReviewPlan
-    build_reviewed_facts(review_plan, answers) -> ReviewedFactsAppendix
-    finalize_preview(preview, review_plan, answers) -> PreviewFinalization
+    build_reviewed_facts(review_plan, answers, messages) -> ReviewedFactsAppendix
+    finalize_preview(preview, review_plan, answers, messages) -> PreviewFinalization
 ```
 
 TypeScript adapters do not need to inherit the Python Protocol. They must preserve
@@ -39,3 +39,8 @@ seam. Review questions are topic-level and hard limited to three by default
 or fact generation fails.
 
 The capability matrix describes the integrations maintained in the current release.
+
+`messages` is the original normalized source snapshot for the request. The Core
+revalidates provider IDs and evidence against it before writing facts. Adapters must
+mark host-internal planning, system/developer/plugin, compaction bookkeeping, tool
+calls, and mechanical execution output with explicit provenance.

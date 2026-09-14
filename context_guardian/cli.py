@@ -226,6 +226,7 @@ def main(argv: list[str] | None = None) -> int:
                 preview=preview,
                 review_plan=plan,
                 answers=answers,
+                messages=messages,
             )
             payload["answers"] = answers
             payload["reviewed_facts"] = finalization.appendix.model_dump(mode="json")
@@ -237,6 +238,7 @@ def main(argv: list[str] | None = None) -> int:
                 preview=preview,
                 review_plan=plan,
                 answers=answers,
+                messages=messages,
             )
             if finalization.appendix.text:
                 print("\n" + finalization.appendix.text)

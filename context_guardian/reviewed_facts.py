@@ -13,9 +13,10 @@ import re
 import unicodedata
 from collections.abc import Iterable
 
-from .audit import is_execution_noise
+from .audit import is_execution_noise, validate_review_plan
 from .models import (
     CandidateCategory,
+    ConversationMessage,
     PreviewFinalization,
     ReviewedFact,
     ReviewedFactsAppendix,
@@ -190,10 +191,11 @@ def _render_appendix(language: str, facts: list[ReviewedFact]) -> str:
 def build_reviewed_facts(
     review_plan: ReviewPlan,
     answers: Iterable[dict] = (),
+    messages: Iterable[ConversationMessage | dict] | None = None,
 ) -> ReviewedFactsAppendix:
-    """Build a stable appendix from plan corrections and explicit Keep answers."""
+    """Build a stable appendix only from a revalidated source-backed plan."""
 
-    plan = ReviewPlan.model_validate(review_plan)
+    plan = validate_review_plan(review_plan, messages)
     facts: list[ReviewedFact] = []
     seen: set[str] = set()
 
@@ -325,10 +327,11 @@ def finalize_preview(
     preview: str,
     review_plan: ReviewPlan,
     answers: Iterable[dict] = (),
+    messages: Iterable[ConversationMessage | dict] | None = None,
 ) -> PreviewFinalization:
     """Build facts and append them, returning an explicit preservation record."""
 
-    appendix = _with_carried_forward(preview, build_reviewed_facts(review_plan, answers))
+    appendix = _with_carried_forward(preview, build_reviewed_facts(review_plan, answers, messages))
     final = append_reviewed_facts(preview, appendix)
     return PreviewFinalization(
         original_preview=preview,

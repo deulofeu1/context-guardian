@@ -22,6 +22,7 @@ from .models import (
     ReviewPlan,
 )
 from .policy import ReviewPolicy
+from .provenance import is_source_allowed, normalize_messages
 from .providers import ModelProvider, ProviderError
 
 
@@ -67,8 +68,10 @@ class RuleBasedInspector:
 
     def inspect(self, messages: Iterable[ConversationMessage], policy: ReviewPolicy) -> list[MemoryCandidate]:
         candidates: list[MemoryCandidate] = []
-        for index, raw_message in enumerate(messages):
+        for index, raw_message in enumerate(normalize_messages(messages)):
             message = ConversationMessage.model_validate(raw_message)
+            if not is_source_allowed(message):
+                continue
             content = message.content.strip()
             if not content:
                 continue
@@ -183,7 +186,9 @@ class ContextGuardian:
                 candidates, mode="rules", policy_version=self.policy.version
             )
 
-        prompt = self._build_inspection_prompt(normalized)
+        prompt = self._build_inspection_prompt(
+            [message for message in normalized if is_source_allowed(message)]
+        )
         try:
             batch = self.provider.generate_structured(prompt, CandidateBatch)
             candidates = [self.policy.apply(candidate) for candidate in batch.candidates]
@@ -289,11 +294,12 @@ class ContextGuardian:
         *,
         review_plan: ReviewPlan,
         answers: Iterable[dict] = (),
+        messages: Iterable[ConversationMessage | dict] | None = None,
     ) -> ReviewedFactsAppendix:
         """Build the deterministic facts appended after one native preview."""
         from .reviewed_facts import build_reviewed_facts
 
-        return build_reviewed_facts(review_plan, answers)
+        return build_reviewed_facts(review_plan, answers, messages)
 
     def append_reviewed_facts(
         self,
@@ -311,11 +317,17 @@ class ContextGuardian:
         preview: str,
         review_plan: ReviewPlan,
         answers: Iterable[dict] = (),
+        messages: Iterable[ConversationMessage | dict] | None = None,
     ) -> PreviewFinalization:
         """Finalize a host preview without invoking a second model call."""
         from .reviewed_facts import finalize_preview
 
-        return finalize_preview(preview=preview, review_plan=review_plan, answers=answers)
+        return finalize_preview(
+            preview=preview,
+            review_plan=review_plan,
+            answers=answers,
+            messages=messages,
+        )
 
     def apply_decisions(
         self,

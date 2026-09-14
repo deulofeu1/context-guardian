@@ -1,9 +1,36 @@
+export type MessageSourceKind =
+  | "unknown"
+  | "user_authored"
+  | "assistant_response"
+  | "attachment_content"
+  | "tool_result"
+  | "durable_tool_result"
+  | "execution_noise"
+  | "internal_metadata";
+
+export type MessageProvenance = {
+  source_kind: MessageSourceKind;
+  user_authored?: boolean;
+  assistant_response?: boolean;
+  attachment_content?: boolean;
+  tool_call?: boolean;
+  tool_result?: boolean;
+  system?: boolean;
+  developer?: boolean;
+  plugin_internal?: boolean;
+  planning?: boolean;
+  compaction_metadata?: boolean;
+  bookkeeping?: boolean;
+};
+
 export type GuardianMessage = {
   role: string;
   content: string;
   id: string;
   is_error?: boolean;
   tool_name?: string;
+  metadata?: Record<string, unknown>;
+  provenance?: MessageProvenance;
 };
 export type MemoryCandidate = {
   id: string;

@@ -22,7 +22,7 @@ def test_rules_inspector_finds_durable_and_transient_context():
         candidate.category is CandidateCategory.TODO and "auth.py" in candidate.content
         for candidate in result.candidates
     )
-    assert any(candidate.category is CandidateCategory.TOOL_OUTPUT for candidate in result.candidates)
+    assert not any(candidate.category is CandidateCategory.TOOL_OUTPUT for candidate in result.candidates)
     assert any(candidate.category is CandidateCategory.FAILED_ATTEMPT for candidate in result.candidates)
     assert len(result.auto_keep) > 0
     assert len(result.auto_drop) > 0
@@ -47,8 +47,8 @@ def test_example_guidance_keeps_project_memory_and_discards_noise():
     assert "PostgreSQL" in guidance.text
     assert "SQLite caused concurrency issues" in guidance.text
     assert "auth.py is still incomplete" in guidance.text
-    assert "grep -R OAuth ." in guidance.text
-    assert "npm install completed successfully" in guidance.text
+    assert "grep -R OAuth ." not in guidance.text
+    assert "npm install completed successfully" not in guidance.text
     assert "temporary syntax error" in guidance.text
     assert "Can discard:" in guidance.text
 
