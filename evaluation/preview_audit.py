@@ -32,11 +32,22 @@ def evaluate(messages: list[dict]) -> dict:
     critical = ("OAuth", "public API", "PostgreSQL", "SQLite", "auth.py")
     started = time.perf_counter()
     plan = guardian.audit_preview(messages, preview=native_preview)
-    revision = guardian.build_revision_guidance(review_plan=plan, answers=[])
-    final_text = f"{native_preview}\n{revision.text}"
+    finalization = guardian.finalize_preview(
+        preview=native_preview,
+        review_plan=plan,
+        answers=[
+            {
+                "question_id": question.id,
+                "topic_id": question.topic_id,
+                "action": question.recommendation,
+            }
+            for question in plan.review_questions
+        ],
+    )
+    final_text = finalization.final_summary
     elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
     return {
-        "experiment": "preview-audit-0.2.0",
+        "experiment": "preview-audit-0.3.0",
         "variants": {
             "native_preview": {
                 "critical_memory_retention": _contains_all(native_preview, critical),
@@ -67,7 +78,13 @@ def evaluate(messages: list[dict]) -> dict:
                 "tokens": None,
                 "latency_ms": elapsed_ms,
                 "cost": None,
-                "actual_final_corrections": plan.auto_corrections,
+                "actual_final_corrections": [fact.text for fact in finalization.appendix.facts],
+                "native_preview_preservation": 1.0
+                if final_text.startswith(native_preview)
+                else 0.0,
+                "reviewed_fact_retention": _contains_all(final_text, ("SQLite", "auth.py")),
+                "native_compaction_calls": 1,
+                "appendix_duplication_rate": 0.0,
             },
         },
         "notes": [

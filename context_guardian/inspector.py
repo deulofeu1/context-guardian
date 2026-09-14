@@ -15,8 +15,10 @@ from .models import (
     ConversationMessage,
     InspectionResult,
     MemoryCandidate,
+    PreviewFinalization,
     ReviewAction,
     ReviewDecision,
+    ReviewedFactsAppendix,
     ReviewPlan,
 )
 from .policy import ReviewPolicy
@@ -281,6 +283,39 @@ class ContextGuardian:
         from .guidance import build_revision_guidance
 
         return build_revision_guidance(review_plan, answers)
+
+    def build_reviewed_facts(
+        self,
+        *,
+        review_plan: ReviewPlan,
+        answers: Iterable[dict] = (),
+    ) -> ReviewedFactsAppendix:
+        """Build the deterministic facts appended after one native preview."""
+        from .reviewed_facts import build_reviewed_facts
+
+        return build_reviewed_facts(review_plan, answers)
+
+    def append_reviewed_facts(
+        self,
+        *,
+        preview: str,
+        appendix: ReviewedFactsAppendix,
+    ) -> str:
+        from .reviewed_facts import append_reviewed_facts
+
+        return append_reviewed_facts(preview, appendix)
+
+    def finalize_preview(
+        self,
+        *,
+        preview: str,
+        review_plan: ReviewPlan,
+        answers: Iterable[dict] = (),
+    ) -> PreviewFinalization:
+        """Finalize a host preview without invoking a second model call."""
+        from .reviewed_facts import finalize_preview
+
+        return finalize_preview(preview=preview, review_plan=review_plan, answers=answers)
 
     def apply_decisions(
         self,

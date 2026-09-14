@@ -23,9 +23,9 @@ Auto Correct / Accept Preview
   ↓
 At most 3 Topic Questions
   ↓
-Incremental Guidance
+Deterministic Reviewed Facts Appendix
   ↓
-Agent Native Compaction
+One Native Compaction Commit
 ```
 
 ## Why it exists
@@ -79,13 +79,13 @@ dsh plugin --profile web add context-guardian-deepseek-harness
 ```
 
 The DeepSeek Harness adapter and Python core share a versioned bridge contract.
-Keep them on the same `0.2.x` release line; do not upgrade the npm adapter while
+Keep them on the same `0.3.x` release line; do not upgrade the npm adapter while
 leaving an older Python core installed. For a reproducible installation, pin the
 core to the adapter's published version, for example:
 
 ```bash
-python3 -m pip install "context-guardian-core==0.2.1"
-dsh plugin --profile web add context-guardian-deepseek-harness@0.2.1
+python3 -m pip install "context-guardian-core==0.3.0"
+dsh plugin --profile web add context-guardian-deepseek-harness@0.3.0
 ```
 
 If a bridge operation is unsupported, the adapter now includes the underlying
@@ -126,7 +126,7 @@ context-guardian verify examples/conversation.json
 
 `verify` is a deterministic release smoke test. It needs no model or API key and
 checks native-preview audit corrections, noise removal, stable IDs, bounded questions,
-and rendered guidance. It is a fast core check, not a replacement for the interactive
+and the append-only Reviewed Facts result. It is a fast core check, not a replacement for the interactive
 Pi/DSH fixture tests.
 
 For the source Pi workflow, use the interactive fixture from a checkout:
@@ -146,9 +146,9 @@ Web profile:
 dsh plugin --profile web add "$PWD/adapters/deepseek-harness"
 ```
 
-Inside Pi, the adapter first asks Pi for a native Preview, audits it with the current
-host model, and retries native compaction only when correction is needed. No second API
-key is required. The Python process never receives those credentials.
+Inside Pi, the adapter asks Pi for one native Preview, audits it with the current host
+model, and appends deterministic Reviewed Facts after review. No second API key is
+required. The Python process never receives those credentials.
 The published adapter is tested against Pi `0.82.1` and Node.js `22.19.0+`.
 
 For DeepSeek Harness:
@@ -158,17 +158,17 @@ dsh plugin --profile web add /absolute/path/to/ContextGuardian/adapters/deepseek
 ```
 
 This adapter decorates DeepSeek Harness's native `dsh-compaction-basic` backend.
-It lets Harness produce a Preview, audits it through the active `ctx.llm` route,
-asks at most three topic questions, and performs one guided native retry only when
-needed. Harness remains responsible for session persistence and the compaction
+It lets Harness produce one Preview, audits it through the active `ctx.llm` route,
+asks at most three topic questions, and appends one deterministic Reviewed Facts
+block to the native result. Harness remains responsible for session persistence and the compaction
 transaction. Web sessions use the selected agent preset, so the preset must contain
 the Context Guardian compaction row.
 
 ## Modes
 
 - Rules mode is local, deterministic, conservative, and the default for the CLI.
-- Native adapters produce a host Preview first, then audit it; automatic corrections
-  and confirmed topic decisions become incremental instructions for one native retry.
+- Native adapters produce exactly one host Preview, then audit it; automatic corrections
+  and confirmed topic decisions become a deterministic append-only Reviewed Facts block.
 - The default review budget is three topic questions and can be lowered with
   `CONTEXT_GUARDIAN_MAX_REVIEW_QUESTIONS=0..3`. Zero disables questions and uses
   conservative no-UI resolution.
@@ -217,8 +217,8 @@ Claude Code settings; otherwise no CC restoration is needed.
 
 | Platform | Level | Auto trigger | Host model | Human review | Preservation |
 | --- | --- | --- | --- | --- | --- |
-| Pi | Native | Yes | Pi current model | Pi UI, max 3 topics | Preview audit + native `customInstructions` retry |
-| DeepSeek Harness | Native | Yes | Harness current `ctx.llm` route | `userQuestions`, max 3 topics | Preview audit + native input retry |
+| Pi | Native | Yes | Pi current model | Pi UI, max 3 topics | One Preview + Reviewed Facts appendix |
+| DeepSeek Harness | Native | Yes | Harness current `ctx.llm` route | `userQuestions`, max 3 topics | One Preview + Reviewed Facts block |
 
 The current release focuses on native compaction integrations. See
 [`docs/adapter-contract.md`](docs/adapter-contract.md) and
@@ -232,9 +232,13 @@ from context_guardian import ContextGuardian
 
 guardian = ContextGuardian()
 plan = guardian.audit_preview(messages, preview="the host's native preview text")
-revision = guardian.build_revision_guidance(review_plan=plan, answers=[])
+finalization = guardian.finalize_preview(
+    preview="the host's native preview text",
+    review_plan=plan,
+    answers=[],
+)
 print(plan.review_questions)
-print(revision.text)
+print(finalization.final_summary)
 
 # Checkpoint generation remains available for assisted integrations through
 # guardian.build_checkpoint(...).
@@ -274,7 +278,7 @@ npm run pi-fixture-smoke
 
 It creates a temporary Pi session containing a pre-seeded, sufficiently large
 conversation, opens the Pi UI, and lets you run `/compact` and manually choose
-Keep/Drop for uncertain candidates. This means nobody needs to spend time creating a
+Keep/Drop for uncertain topics. This means nobody needs to spend time creating a
 long real conversation just to validate the adapter. The fixture uses the current Pi
 model and authentication, so log in to Pi first if necessary. If the Python core is
 outside the repository virtual environment, set `CONTEXT_GUARDIAN_PYTHON` explicitly.
@@ -289,9 +293,9 @@ It creates a temporary Harness profile and a pre-seeded long session, opens the 
 and pauses on a single topic-level question about an npm fundamentals side discussion.
 Select the session named `Context Guardian 预置长对话（请先选择）`, then enter
 `/compact` and choose Keep or Drop. It also verifies that the goal, API constraint,
-PostgreSQL decision, `auth.py` TODO, and SQLite rejection reason reach native
-compaction guidance while transient grep/npm output is discarded. No real API key is
-needed because the fixture uses a replay model.
+PostgreSQL decision, `auth.py` TODO, and SQLite rejection reason are appended to the
+native Preview while transient grep/npm output is discarded. No real API key is needed
+because the fixture uses a replay model.
 
 Review text follows the dominant language of user-authored messages. Technical names
 such as `OAuth`, `npm`, and `public API` remain unchanged, while host status text such

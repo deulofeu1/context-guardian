@@ -4,7 +4,15 @@ import { randomUUID } from "node:crypto";
 import type { Context } from "@deepseek-ai/cordis";
 import type { Agent } from "@deepseek-ai/dsh-agent";
 import { generateStructuredWithHost } from "./host-model.js";
-import type { Guidance, GuardianMessage, InspectionResult, MemoryCandidate, ProtocolFrame, ReviewPlan } from "./types.js";
+import type {
+  Guidance,
+  GuardianMessage,
+  InspectionResult,
+  MemoryCandidate,
+  ProtocolFrame,
+  ReviewPlan,
+  ReviewedFactsAppendix,
+} from "./types.js";
 
 const PROTOCOL_VERSION = 1;
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -159,10 +167,24 @@ export class GuardianBridge {
     return result as Guidance;
   }
 
+  async buildReviewedFacts(
+    ctx: Context,
+    agent: Agent,
+    reviewPlan: ReviewPlan,
+    answers: Array<{ question_id: string; topic_id: string; action: "keep" | "drop" }>,
+    signal: AbortSignal,
+  ): Promise<ReviewedFactsAppendix> {
+    const result = await this.request(ctx, agent, "build_reviewed_facts", {
+      review_plan: reviewPlan,
+      answers,
+    }, signal);
+    return result as ReviewedFactsAppendix;
+  }
+
   private async request(
     ctx: Context,
     agent: Agent,
-    operation: "inspect" | "guidance" | "audit_preview" | "revision_guidance",
+    operation: "inspect" | "guidance" | "audit_preview" | "revision_guidance" | "build_reviewed_facts",
     body: Record<string, unknown>,
     signal: AbortSignal,
   ): Promise<unknown> {

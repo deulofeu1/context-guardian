@@ -82,6 +82,21 @@ export interface ReviewPlan {
   review_questions: ReviewQuestion[];
 }
 
+export interface ReviewedFact {
+  id: string;
+  text: string;
+  origin: "auto_correction" | "human_keep" | "carried_forward";
+  topic_id?: string | null;
+  category?: string | null;
+}
+
+export interface ReviewedFactsAppendix {
+  version: "1";
+  language: "zh-CN" | "en";
+  facts: ReviewedFact[];
+  text: string;
+}
+
 export interface Guidance {
   must_preserve: string[];
   can_discard: string[];

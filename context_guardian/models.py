@@ -192,6 +192,40 @@ class ReviewPlan(BaseModel):
         return "zh-CN" if value == "zh" else value
 
 
+class ReviewedFact(BaseModel):
+    """One deterministic fact approved for appending to a native preview."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1, max_length=80)
+    text: str = Field(min_length=1, max_length=500)
+    origin: Literal["auto_correction", "human_keep", "carried_forward"]
+    topic_id: str | None = Field(default=None, max_length=120)
+    category: CandidateCategory | None = None
+
+
+class ReviewedFactsAppendix(BaseModel):
+    """A versioned, deterministic appendix that can be added to host output."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    version: Literal["1"] = "1"
+    language: Literal["zh-CN", "en"] = "en"
+    facts: list[ReviewedFact] = Field(default_factory=list, max_length=50)
+    text: str = Field(default="", max_length=32_000)
+
+
+class PreviewFinalization(BaseModel):
+    """The original native preview and its append-only finalized form."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    original_preview: str
+    final_summary: str
+    appendix: ReviewedFactsAppendix
+    changed: bool
+
+
 class InspectionResult(BaseModel):
     candidates: list[MemoryCandidate] = Field(default_factory=list)
     auto_keep: list[MemoryCandidate] = Field(default_factory=list)

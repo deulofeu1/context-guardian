@@ -23,9 +23,9 @@ Keep/Drop 决策变得可检查。
   ↓
 最多 3 个主题问题
   ↓
-增量指导
+确定性 Reviewed Facts 附录
   ↓
-Agent 原生 Compaction
+一次原生 Compaction 提交
 ```
 
 ## 为什么需要它
@@ -74,12 +74,12 @@ dsh plugin --profile web add context-guardian-deepseek-harness
 ```
 
 DeepSeek Harness 适配器与 Python 核心共用带版本的 bridge 合同，必须保持在同一条
-`0.2.x` 发布线上；不要只升级 npm 适配器而保留旧的 Python 核心。为保证安装可复现，
+`0.3.x` 发布线上；不要只升级 npm 适配器而保留旧的 Python 核心。为保证安装可复现，
 请将核心固定为适配器对应的已发布版本，例如：
 
 ```bash
-python3 -m pip install "context-guardian-core==0.2.1"
-dsh plugin --profile web add context-guardian-deepseek-harness@0.2.1
+python3 -m pip install "context-guardian-core==0.3.0"
+dsh plugin --profile web add context-guardian-deepseek-harness@0.3.0
 ```
 
 如果 bridge 操作不受支持，适配器现在会把底层错误写入 warning，能够直接识别核心与
@@ -118,7 +118,7 @@ context-guardian verify examples/conversation.json
 ```
 
 `verify` 是确定性的发布前 smoke test，会检查原生 Preview 审计修正、噪声移除、
-ID 稳定性、问题数量上限和 Guidance 输出。它很快，但不能代替 Pi/DSH 的交互式
+ID 稳定性、问题数量上限和 Reviewed Facts 输出。它很快，但不能代替 Pi/DSH 的交互式
 fixture 测试。
 
 ### Pi
@@ -129,10 +129,10 @@ fixture 测试。
 npm run pi-fixture-smoke
 ```
 
-它会创建一段预置的长对话，打开 Pi UI，并让你手动选择不确定候选的 Keep/Drop，
+它会创建一段预置的长对话，打开 Pi UI，并让你手动选择不确定主题的 Keep/Drop，
 所以不需要先进行很长的真实对话。适配器先调用 Pi 原生 compaction 生成未提交的
-Preview，再用当前模型审计；只有需要修正或确认保留主题时才第二次调用原生
-compaction。Python 子进程不会收到 API Key。Node.js 需要 `22.19.0+`，Pi 兼容范围
+Preview，再用当前模型审计，最后将确定性 Reviewed Facts 追加到 Preview；整个流程
+只调用一次原生 compaction。Python 子进程不会收到 API Key。Node.js 需要 `22.19.0+`，Pi 兼容范围
 是 `0.82.1`。
 
 若要在已有 Pi 会话中直接加载仓库中的扩展，请看
@@ -150,8 +150,8 @@ env PATH="/path/to/node-22.19/bin:$PATH" npm run dsh-fixture-smoke
 fixture 会预置一段足够长的会话，打开 Harness Web UI，并针对 npm 基础概念旁支
 主题显示一个主题级问题。先选择名为 `Context Guardian 预置长对话（请先选择）`
 的会话，再输入 `/compact` 并手动选择 Keep 或 Drop。fixture 会验证目标、约束、
-PostgreSQL 决定、`auth.py` TODO 以及 SQLite 被放弃的原因进入原生 compaction
-Guidance，同时不会把原始 grep/npm 命令噪声放入 Review UI。它使用 replay model，
+PostgreSQL 决定、`auth.py` TODO 以及 SQLite 被放弃的原因进入 Reviewed Facts 附录，同时
+不会把原始 grep/npm 命令噪声放入 Review UI。它使用 replay model，
 不需要 DeepSeek API Key。详细步骤见
 [`adapters/deepseek-harness/README.md`](adapters/deepseek-harness/README.md)。
 
@@ -161,8 +161,8 @@ Review 文案会跟随用户消息占主导的语言。`OAuth`、`npm`、`public
 ## 工作模式
 
 - 规则模式：本地、确定性、保守，是 CLI 默认模式。
-- Native 适配器：先得到宿主 Preview，再进行语义审计；必要时把增量修正交给
-  宿主原生 compaction 第二次调用。
+- Native 适配器：只得到一次宿主 Preview，再进行语义审计；自动修正和确认的主题
+  以确定性 Reviewed Facts 附录追加，不调用第二次原生 compaction。
 - 默认最多询问 3 个主题问题，可用 `CONTEXT_GUARDIAN_MAX_REVIEW_QUESTIONS=0..3`
   调低；设为 0 表示不弹窗并采用保守处理。
 - OpenAI 模式：独立 CLI 的可选 Provider，需要时安装 `context-guardian-core[openai]` 并配置 Key。
@@ -206,8 +206,8 @@ Claude Code 和 Codex 不属于当前 `main` 发布版本。之前的实验性�
 
 | 平台 | 级别 | 自动触发 | 宿主模型 | 人工审查 | 保留方式 |
 | --- | --- | --- | --- | --- | --- |
-| Pi | Native | 是 | Pi 当前模型 | Pi UI，最多 3 个主题 | Preview 审计 + native `customInstructions` 重试 |
-| DeepSeek Harness | Native | 是 | Harness 当前 `ctx.llm` 路由 | `userQuestions`，最多 3 个主题 | Preview 审计 + native 输入重试 |
+| Pi | Native | 是 | Pi 当前模型 | Pi UI，最多 3 个主题 | 一次 Preview + Reviewed Facts 附录 |
+| DeepSeek Harness | Native | 是 | Harness 当前 `ctx.llm` 路由 | `userQuestions`，最多 3 个主题 | 一次 Preview + Reviewed Facts 区块 |
 
 当前版本聚焦于原生 compaction 集成。统一接口和能力声明见
 [`docs/adapter-contract.md`](docs/adapter-contract.md) 与

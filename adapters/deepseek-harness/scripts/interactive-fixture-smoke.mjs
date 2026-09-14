@@ -379,7 +379,6 @@ async function main() {
     type: "session",
     id: seededSessionId,
   }) + "\n", "utf8");
-  const summary = "## 主要请求和目标\n- 实现 OAuth，但不能修改 public API。\n\n## 关键技术约束\n- 必须保持现有 API 兼容。\n\n## 文件和代码\n- auth.py：OAuth 回调仍未完成。\n\n## 错误与修正\n- SQLite 因并发写入导致锁问题而被放弃。\n\n## 待办事项\n- 完成 auth.py 并运行兼容性测试。\n\n## 当前工作\n- provider abstraction 已接入；callback 仍待完成。\n\n## 下一步\n- 实现 OAuth callback。\n\n## 关键上下文\n- PostgreSQL 是最终方案；不要重复被放弃的 SQLite 路径。\n";
   await writeFile(overridePath, JSON.stringify([
     {
       kind: "chunks",
@@ -396,15 +395,6 @@ async function main() {
         { type: "block-start", index: 0, blockType: "text" },
         { type: "text-delta", index: 0, text: JSON.stringify(auditPlan) },
         { type: "block-end", index: 0, block: { type: "text", text: JSON.stringify(auditPlan) } },
-        { type: "finish", reason: { kind: "stop" } },
-      ],
-    },
-    {
-      kind: "chunks",
-      chunks: [
-        { type: "block-start", index: 0, blockType: "text" },
-        { type: "text-delta", index: 0, text: summary },
-        { type: "block-end", index: 0, block: { type: "text", text: summary } },
         { type: "finish", reason: { kind: "stop" } },
       ],
     },
@@ -471,7 +461,7 @@ async function main() {
     console.log("Open the printed Web URL, select 'Context Guardian 预置长对话（请先选择）' (or the context-guardian-fixture-long session), enter /compact, and answer at most three topic questions.");
     console.log("Expected automatic corrections: SQLite failure reason and the incomplete auth.py TODO.");
     console.log("Expected topic question: npm fundamentals side discussion; execution noise stays out of the UI.");
-    console.log("Expected final result: goal, API constraint, PostgreSQL, selected corrections, and no raw logs.");
+    console.log("Expected final result: one native Preview plus a Reviewed Facts block containing the selected corrections and no raw logs.");
     console.log("Exit the Web process with Ctrl-C when finished.");
     console.log("");
 

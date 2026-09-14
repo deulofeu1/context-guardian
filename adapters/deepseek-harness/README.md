@@ -6,10 +6,10 @@ This adapter audits a native Preview before DeepSeek Harness commits context com
 
 ```text
 Harness native Preview → Context Guardian Audit → auto correction / max 3 topic questions
-→ incremental guidance → native Harness compaction commit
+→ deterministic Reviewed Facts block → native Harness compaction commit
 ```
 
-It is a decorator over `dsh-compaction-basic`. DeepSeek Harness continues to own compaction range selection, token accounting, durable session events, summary framing, persistence, and the `/compact` command. An accurate Preview is returned without a retry. If Python, the bridge, audit, review UI, or guided retry is unavailable, the adapter logs a warning and accepts the successful Preview. This is experimental and does not guarantee better summaries or agent performance.
+It is a decorator over `dsh-compaction-basic`. DeepSeek Harness continues to own compaction range selection, token accounting, durable session events, summary framing, persistence, and the `/compact` command. The adapter makes one native `summarize()` call, then appends one deterministic Reviewed Facts content block to its result. If Python, the bridge, audit, review UI, or fact generation is unavailable, the adapter logs a warning and accepts the successful Preview. This is experimental and does not guarantee better summaries or agent performance.
 
 The hard review budget is controlled by `CONTEXT_GUARDIAN_MAX_REVIEW_QUESTIONS=0..3`;
 zero disables questions and resolves uncertain topics conservatively.
@@ -26,12 +26,12 @@ dsh plugin --profile web add context-guardian-deepseek-harness
 ```
 
 The adapter and Python core share a versioned bridge contract and must stay on
-the same `0.2.x` release line. Pin both sides when reproducing a published setup;
-for example, the `0.2.1` pair is:
+the same `0.3.x` release line. Pin both sides when reproducing a published setup;
+for example, the `0.3.0` pair is:
 
 ```bash
-python3 -m pip install "context-guardian-core==0.2.1"
-dsh plugin --profile web add context-guardian-deepseek-harness@0.2.1
+python3 -m pip install "context-guardian-core==0.3.0"
+dsh plugin --profile web add context-guardian-deepseek-harness@0.3.0
 ```
 
 If an older core does not recognize an operation used by the adapter, the
@@ -114,8 +114,9 @@ The fixture creates an isolated Web profile, seeds a sufficiently large conversa
 deliberately omits selected facts from the replayed native Preview, and opens the
 Harness UI. Select the session named `Context Guardian 预置长对话（请先选择）`
 (or the `context-guardian-fixture-long` workspace), then enter `/compact`. The UI
-should show at most three topic questions; select Keep or Drop and confirm the guided
-native compaction result. It uses a replay model, so no DeepSeek API key is required.
+should show at most three topic questions; select Keep or Drop and confirm the native
+Preview with its deterministic Reviewed Facts block. It uses a replay model, so no
+DeepSeek API key is required.
 Exit the temporary Web process with Ctrl-C when finished.
 
 ## Disable or uninstall

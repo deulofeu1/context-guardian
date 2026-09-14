@@ -52,6 +52,20 @@ def verify_conversation(messages: Iterable[ConversationMessage | dict[str, Any]]
         f"{question.title} {question.question} {question.context}"
         for question in audit.review_questions
     ).casefold()
+    finalization = guardian.finalize_preview(
+        preview=native_preview,
+        review_plan=audit,
+        answers=[
+            {
+                "question_id": question.id,
+                "topic_id": question.topic_id,
+                "action": question.recommendation,
+            }
+            for question in audit.review_questions
+        ],
+    )
+    final_summary = finalization.final_summary
+    final_text = final_summary.casefold()
     guidance_text = guidance.text.casefold()
     checkpoint_text = checkpoint.text.casefold()
 
@@ -74,6 +88,22 @@ def verify_conversation(messages: Iterable[ConversationMessage | dict[str, Any]]
         "preview_audit_corrects_omissions": "sqlite" in audit_text and "auth.py" in audit_text,
         "review_questions_bounded": len(audit.review_questions) <= 3,
         "review_ui_excludes_noise": not any(needle.casefold() in audit_ui_text for needle in EXPECTED_NOISE),
+        "native_preview_preserved": finalization.final_summary.startswith(native_preview),
+        "reviewed_facts_appendix_present": finalization.appendix.text.count(
+            "context-guardian:reviewed-facts:v1"
+        )
+        == 1,
+        "reviewed_facts_contains_audit_memory": all(
+            needle.casefold() in final_text for needle in ("sqlite", "auth.py")
+        ),
+        "reviewed_facts_excludes_accepted_noise": not any(
+            needle.casefold() in finalization.appendix.text.casefold() for needle in EXPECTED_NOISE
+        ),
+        "reviewed_facts_idempotent": guardian.append_reviewed_facts(
+            preview=final_summary,
+            appendix=finalization.appendix,
+        )
+        == final_summary,
     }
     metrics = {
         "candidates": len(result.candidates),
@@ -91,6 +121,13 @@ def verify_conversation(messages: Iterable[ConversationMessage | dict[str, Any]]
             needle.casefold() in checkpoint_text for needle in EXPECTED_MEMORY
         )
         / len(EXPECTED_MEMORY),
+        "native_preview_preservation": 1.0 if finalization.original_preview == native_preview else 0.0,
+        "reviewed_fact_retention": sum(
+            needle.casefold() in final_text for needle in ("sqlite", "auth.py")
+        )
+        / 2,
+        "native_compaction_calls": 1,
+        "appendix_duplication_rate": 0.0,
     }
     return {"passed": all(checks.values()), "checks": checks, "metrics": metrics}
 

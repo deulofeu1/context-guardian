@@ -38,10 +38,11 @@ def build_revision_guidance(
     review_plan: ReviewPlan,
     answers: Iterable[dict] = (),
 ) -> CompactionGuidance:
-    """Render only the corrections needed to revise an accepted native preview.
+    """Deprecated 0.2.x helper for callers that still perform a second compaction.
 
     ``answers`` accepts ``question_id`` or ``topic_id`` plus ``action``. Unknown
-    ids are ignored by design so a host can safely retry after a cancelled UI.
+    ids are ignored by design. Maintained 0.3.x adapters use ``build_reviewed_facts``
+    and an append-only finalization instead.
     """
 
     answer_map: dict[str, str] = {}

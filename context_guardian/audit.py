@@ -775,8 +775,9 @@ corrections, not a complete summary.
                             label=_localized(language, "保留关键结论", "Preserve key conclusion"),
                             description=_localized(
                                 language,
-                                "要求原生压缩器强调保留该主题的关键结论。",
-                                "Ask the native compactor to preserve the topic's key conclusion.",
+                                "将该主题的关键结论追加到 Reviewed Facts；不保存完整原始对话。",
+                                "Append the topic's key conclusion to Reviewed Facts; do not "
+                                "preserve the full history.",
                             ),
                         ),
                         ReviewOption(
@@ -784,9 +785,9 @@ corrections, not a complete summary.
                             label=_localized(language, "无需特别保留", "Accept preview"),
                             description=_localized(
                                 language,
-                                "不要求特别保留；不代表删除所有相关历史。",
-                                "Do not specially preserve it; this does not mean deleting all "
-                                "related history.",
+                                "不追加该主题的关键结论；不会删除原生 Preview 已有内容。",
+                                "Do not append this topic's key conclusion; existing native Preview "
+                                "content is not removed.",
                             ),
                         ),
                     ],

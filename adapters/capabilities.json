@@ -7,8 +7,10 @@
       "auto_trigger": true,
       "host_model": "Pi current model and credentials",
       "human_review": "Pi UI confirm",
-      "native_compaction_injection": "direct customInstructions",
-      "preview_audit": "native preview, semantic audit, optional native retry",
+      "native_compaction_injection": "append deterministic Reviewed Facts to native preview",
+      "preview_audit": "one native preview, semantic audit, bounded topic review, append-only finalization",
+      "native_compaction_calls": 1,
+      "reviewed_facts": true,
       "max_review_questions": 3,
       "mode": "Native Compaction Integration"
     },
@@ -18,8 +20,10 @@
       "auto_trigger": true,
       "host_model": "Harness current ctx.llm route",
       "human_review": "userQuestions UI",
-      "native_compaction_injection": "direct native input message",
-      "preview_audit": "native preview, semantic audit, optional native retry",
+      "native_compaction_injection": "append one deterministic Reviewed Facts content block",
+      "preview_audit": "one native preview, semantic audit, bounded topic review, append-only finalization",
+      "native_compaction_calls": 1,
+      "reviewed_facts": true,
       "max_review_questions": 3,
       "mode": "Native Compaction Integration"
     }

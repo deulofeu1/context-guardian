@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.0 - 2026-09-14 (Single native compaction)
+
+- Replaced the optional second native compaction with one native Preview followed by
+  deterministic, append-only Reviewed Facts finalization.
+- Added versioned `ReviewedFact`, `ReviewedFactsAppendix`, and `PreviewFinalization`
+  core APIs with stable IDs, deduplication, carried-forward facts, and Chinese/English
+  rendering.
+- Updated Pi and DeepSeek Harness adapters to preserve native result metadata and make
+  exactly one host compaction call per operation.
+- Added bridge support, adapter tests, fixture expectations, and release metadata for
+  the 0.3.0 compatibility line.
+
 ## 0.2.1 - 2026-09-13 (Language detection fix)
 
 - Count Chinese characters and Latin words separately when choosing the Review UI

@@ -34,12 +34,14 @@ provider credentials to the Python process. The flow is:
 
 ```text
 Pi native Preview → Context Guardian Audit → auto correction / max 3 topic questions
-→ incremental guidance → Pi native compaction commit
+→ deterministic Reviewed Facts appendix → Pi native compaction commit
 ```
 
-An accurate Preview is returned without a second native call. If audit, UI, or the
-guided retry fails after a successful Preview, that Preview is returned. If the first
-native call fails, the hook returns control to Pi's native fallback. This is
+The adapter makes exactly one native compaction call. It appends Reviewed Facts to
+that Preview without changing Pi's metadata or invoking a second model call. If
+audit, UI, or fact generation fails after a successful Preview, that Preview is
+returned. If the first native call fails, the hook returns control to Pi's native
+fallback. This is
 experimental behavior and does not guarantee better summaries or agent performance.
 
 Set `CONTEXT_GUARDIAN_MAX_REVIEW_QUESTIONS=0..3` to control the hard review budget.
@@ -79,8 +81,8 @@ npm run pi-fixture-smoke
 
 The script creates a temporary session with a pre-seeded long conversation, opens Pi,
 and lets you run `/compact` and manually choose Keep/Drop for bounded topics. It
-exercises the actual native Preview, host-model audit, review UI, incremental guidance,
-and native compaction flow without requiring a user to first conduct a long
+exercises the actual native Preview, host-model audit, review UI, deterministic
+Reviewed Facts append, and native compaction flow without requiring a user to first conduct a long
 conversation. Pi must be authenticated because the adapter reuses the current host
 model. If the Python core is outside the repository virtual environment, set
 `CONTEXT_GUARDIAN_PYTHON` explicitly.

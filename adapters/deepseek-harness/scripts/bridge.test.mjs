@@ -4,7 +4,8 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 import { GuardianBridge, normalizeDeepSeekMessages, preferredLanguage, pythonCommand, pythonEnvironment } from "../lib/bridge.js";
-import { ContextGuardianCompactionEngine, answersForNoUi, needsRevision, uiMessageWithError } from "../lib/index.js";
+import { ContextGuardianCompactionEngine, answersForNoUi, uiMessageWithError } from "../lib/index.js";
+import { appendReviewedFacts } from "../lib/reviewed-facts.js";
 
 const repositoryRoot = resolve(new URL("../../../", import.meta.url).pathname);
 const pythonCandidates = [
@@ -102,13 +103,26 @@ test("DeepSeek bridge detects language from user messages only", () => {
   ]), "zh-CN");
 });
 
-test("DeepSeek no-UI resolution follows recommendations and preserves corrections", () => {
+test("DeepSeek no-UI resolution follows topic recommendations", () => {
   const plan = {
     auto_corrections: ["auth.py is incomplete."],
     review_questions: [{ id: "q1", topic_id: "t1", recommendation: "keep" }],
   };
   assert.deepEqual(answersForNoUi(plan), [{ question_id: "q1", topic_id: "t1", action: "keep" }]);
-  assert.equal(needsRevision(plan, [{ action: "drop" }]), true);
+});
+
+test("DeepSeek appends reviewed facts to summary without a second native call", () => {
+  const preview = "Native Harness preview";
+  const appendix = {
+    version: "1",
+    language: "en",
+    facts: [{ id: "fact-1", text: "SQLite was abandoned due to concurrency.", origin: "auto_correction" }],
+    text: "<!-- context-guardian:reviewed-facts:v1 -->\n- SQLite was abandoned due to concurrency.\n<!-- /context-guardian:reviewed-facts -->",
+  };
+  const finalSummary = appendReviewedFacts(preview, appendix);
+  assert.equal(finalSummary.startsWith(preview), true);
+  assert.equal(finalSummary.includes("SQLite was abandoned"), true);
+  assert.equal(appendReviewedFacts(finalSummary, appendix), finalSummary);
 });
 
 test("DeepSeek fallback warnings preserve bridge error details", () => {

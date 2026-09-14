@@ -14,7 +14,10 @@ from .models import (
     ConversationMessage,
     InspectionResult,
     MemoryCandidate,
+    PreviewFinalization,
     ReviewDecision,
+    ReviewedFactsAppendix,
+    ReviewPlan,
 )
 
 
@@ -34,8 +37,10 @@ class AdapterCapabilities(BaseModel):
     host_model: str
     human_review: str
     native_compaction_injection: str
-    preview_audit: str = "native preview → semantic audit → optional native retry"
+    preview_audit: str = "one native preview → semantic audit → deterministic reviewed-facts append"
     max_review_questions: int = 3
+    native_compaction_calls: int = 1
+    reviewed_facts: bool = True
 
 
 class ContextGuardianAdapter(Protocol):
@@ -51,6 +56,21 @@ class ContextGuardianAdapter(Protocol):
 
     def audit_preview(self, messages: Sequence[ConversationMessage], preview: str):
         """Audit a host-native preview and return a bounded ReviewPlan."""
+
+    def build_reviewed_facts(
+        self,
+        review_plan: ReviewPlan,
+        answers: Sequence[dict],
+    ) -> ReviewedFactsAppendix:
+        """Build deterministic facts to append after the native Preview."""
+
+    def finalize_preview(
+        self,
+        preview: str,
+        review_plan: ReviewPlan,
+        answers: Sequence[dict],
+    ) -> PreviewFinalization:
+        """Return an append-only finalization while preserving the native Preview."""
 
     def review(self, candidates: Sequence[MemoryCandidate]) -> Sequence[ReviewDecision]:
         """Resolve uncertain candidates through the host's review surface."""

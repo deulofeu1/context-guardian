@@ -1,9 +1,9 @@
 import type { Context } from "@deepseek-ai/cordis";
 import { BasicCompactionEngine } from "@deepseek-ai/dsh-compaction-basic";
 import type { Agent } from "@deepseek-ai/dsh-agent";
-import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import type { ReviewPlan, ReviewQuestion } from "./types.js";
 import { GuardianBridge, normalizeDeepSeekMessages, preferredLanguage } from "./bridge.js";
+import { appendReviewedFacts } from "./reviewed-facts.js";
 
 export const name = "context-guardian-deepseek-harness";
 const MAX_REVIEW_QUESTIONS = 3;
@@ -18,20 +18,18 @@ type NativeSummarizeResult = Awaited<ReturnType<NativeSummarize>>;
 
 const bridge = new GuardianBridge();
 type UiLanguage = "zh-CN" | "en";
-type UiMessageKey = "auditUnavailable" | "reviewCancelled" | "revisionUnavailable" | "finalFailed";
+type UiMessageKey = "auditUnavailable" | "reviewCancelled" | "factsUnavailable";
 
 const UI_MESSAGES: Record<UiLanguage, Record<UiMessageKey, string>> = {
   en: {
     auditUnavailable: "Context Guardian audit unavailable; accepting the successful native preview.",
     reviewCancelled: "Context Guardian review unavailable; accepting the successful native preview.",
-    revisionUnavailable: "Context Guardian revision unavailable; accepting the successful native preview.",
-    finalFailed: "Context Guardian final compaction failed; accepting the successful native preview.",
+    factsUnavailable: "Context Guardian reviewed facts unavailable; accepting the successful native preview.",
   },
   "zh-CN": {
     auditUnavailable: "Context Guardian 审计不可用；接受已经成功生成的原生预览。",
     reviewCancelled: "Context Guardian 人工审查不可用；接受已经成功生成的原生预览。",
-    revisionUnavailable: "Context Guardian 修正指导不可用；接受已经成功生成的原生预览。",
-    finalFailed: "Context Guardian 最终压缩失败；接受已经成功生成的原生预览。",
+    factsUnavailable: "Context Guardian Reviewed Facts 不可用；接受已经成功生成的原生预览。",
   },
 };
 
@@ -68,10 +66,6 @@ export function answersForNoUi(plan: ReviewPlan): Array<{
     topic_id: question.topic_id,
     action: question.recommendation,
   }));
-}
-
-export function needsRevision(plan: ReviewPlan, answers: readonly { action: "keep" | "drop" }[]): boolean {
-  return plan.auto_corrections.length > 0 || answers.some((answer) => answer.action === "keep");
 }
 
 function reviewQuestionsForUi(plan: ReviewPlan) {
@@ -144,17 +138,6 @@ function errorCode(error: unknown): string | undefined {
     : undefined;
 }
 
-function nativeInputWithGuidance(input: NativeSummarizeInput, text: string): NativeSummarizeInput {
-  const guidanceMessage = createUserMessage({
-    content: [{ type: "text", text }],
-    source: { kind: "plugin", plugin: name },
-  });
-  return {
-    ...input,
-    messages: [...input.messages, guidanceMessage],
-  } as NativeSummarizeInput;
-}
-
 function normalizeInput(input: NativeSummarizeInput): ReturnType<typeof normalizeDeepSeekMessages> {
   const candidate = input as NativeSummarizeInput & { system?: string };
   return normalizeDeepSeekMessages(candidate.system, input.messages);
@@ -172,7 +155,7 @@ function textFromSummary(result: NativeSummarizeResult): string {
 /**
  * Decorates the native DeepSeek Harness compactor. The native engine owns the
  * single transaction; this override only performs an uncommitted preview,
- * an external audit, and (when needed) one guided native retry.
+ * an external audit, and a deterministic append to the returned summary.
  */
 export class ContextGuardianCompactionEngine extends BasicCompactionEngine {
   // Compaction runs in its own isolated Cordis scope. Declare the human
@@ -221,27 +204,28 @@ export class ContextGuardianCompactionEngine extends BasicCompactionEngine {
       this.ctx.logger.warn(uiMessageWithError(uiLanguage, "reviewCancelled", error));
       return preview;
     }
-    if (!needsRevision(plan, answers)) {
-      debug(this.ctx, "native preview reused; final compaction not needed");
-      return preview;
-    }
-
-    let guidance;
+    let appendix;
     try {
-      guidance = await bridge.revisionGuidance(this.ctx, agent, plan, answers, operationSignal);
+      appendix = await bridge.buildReviewedFacts(this.ctx, agent, plan, answers, operationSignal);
     } catch (error) {
-      this.ctx.logger.warn(uiMessageWithError(uiLanguage, "revisionUnavailable", error));
+      this.ctx.logger.warn(uiMessageWithError(uiLanguage, "factsUnavailable", error));
       return preview;
     }
-    if (!guidance.text) return preview;
-
-    try {
-      debug(this.ctx, "running one guided native final compaction");
-      return await super.summarize(nativeInputWithGuidance(input, guidance.text), agent, signal);
-    } catch (error) {
-      this.ctx.logger.warn(uiMessageWithError(uiLanguage, "finalFailed", error));
+    if (!appendix.text) {
+      debug(this.ctx, "native_compaction_calls=1 reviewed_facts_auto=0 reviewed_facts_human=0 reviewed_facts_total=0 preview_changed=false");
       return preview;
     }
+    const summary = [
+      ...(preview.summary as readonly { type?: string; text?: string }[]),
+      { type: "text", text: appendix.text },
+    ];
+    debug(
+      this.ctx,
+      `native_compaction_calls=1 reviewed_facts_auto=${String(appendix.facts.filter((fact) => fact.origin === "auto_correction").length)} `
+        + `reviewed_facts_human=${String(appendix.facts.filter((fact) => fact.origin === "human_keep").length)} `
+        + `reviewed_facts_total=${String(appendix.facts.length)} preview_changed=true`,
+    );
+    return { ...preview, summary } as NativeSummarizeResult;
   }
 }
 

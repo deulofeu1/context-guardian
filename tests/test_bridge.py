@@ -135,3 +135,24 @@ def test_bridge_revision_guidance_accepts_topic_answer():
     response = json.loads(output_stream.getvalue())
     assert response["ok"] is True
     assert "Keep the key conclusion." in response["result"]["text"]
+
+
+def test_bridge_build_reviewed_facts_is_deterministic_and_does_not_call_revision():
+    request = {
+        "protocol_version": 1,
+        "type": "request",
+        "request_id": "request-facts",
+        "operation": "build_reviewed_facts",
+        "review_plan": {
+            "language": "en",
+            "auto_corrections": ["PostgreSQL is the selected database."],
+        },
+        "answers": [],
+    }
+    output_stream = io.StringIO()
+    run_protocol(io.StringIO(json.dumps(request) + "\n"), output_stream)
+    response = json.loads(output_stream.getvalue())
+    assert response["ok"] is True
+    assert response["result"]["version"] == "1"
+    assert response["result"]["facts"][0]["origin"] == "auto_correction"
+    assert "PostgreSQL" in response["result"]["text"]
