@@ -29,6 +29,7 @@ def test_bridge_rejects_unknown_operation():
     run_protocol(input_stream, output_stream)
     response = json.loads(output_stream.getvalue())
     assert response["ok"] is False
+    assert response["error"] == "unsupported operation"
 
 
 def test_bridge_guidance_validates_json_candidates():

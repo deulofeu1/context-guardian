@@ -78,6 +78,19 @@ python3 -m pip install context-guardian-core
 dsh plugin --profile web add context-guardian-deepseek-harness
 ```
 
+The DeepSeek Harness adapter and Python core share a versioned bridge contract.
+Keep them on the same `0.2.x` release line; do not upgrade the npm adapter while
+leaving an older Python core installed. For a reproducible installation, pin the
+core to the adapter's published version, for example:
+
+```bash
+python3 -m pip install "context-guardian-core==0.2.1"
+dsh plugin --profile web add context-guardian-deepseek-harness@0.2.1
+```
+
+If a bridge operation is unsupported, the adapter now includes the underlying
+error in its warning so a core/adapter mismatch is immediately diagnosable.
+
 DeepSeek Harness `0.1.5-rc.x` and Node.js `22.19.0+` are required. Harness Web
 also needs a one-time preset change; see the adapter guide below.
 

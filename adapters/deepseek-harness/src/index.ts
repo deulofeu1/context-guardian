@@ -39,6 +39,12 @@ function uiMessage(language: UiLanguage, key: UiMessageKey): string {
   return UI_MESSAGES[language][key];
 }
 
+export function uiMessageWithError(language: UiLanguage, key: UiMessageKey, error: unknown): string {
+  const detail = error instanceof Error ? error.message : String(error);
+  const normalized = detail.replace(/\s+/g, " ").trim().slice(0, 300);
+  return normalized ? `${uiMessage(language, key)} Details: ${normalized}` : uiMessage(language, key);
+}
+
 function debug(ctx: Context, message: string): void {
   if (process.env.CONTEXT_GUARDIAN_DEBUG === "1") {
     const line = `context guardian: ${message}`;
@@ -203,7 +209,7 @@ export class ContextGuardianCompactionEngine extends BasicCompactionEngine {
           + `questions=${String(plan.review_questions.length)}`,
       );
     } catch (error) {
-      this.ctx.logger.warn(uiMessage(uiLanguage, "auditUnavailable"));
+      this.ctx.logger.warn(uiMessageWithError(uiLanguage, "auditUnavailable", error));
       return preview;
     }
     uiLanguage = plan.language;
@@ -212,7 +218,7 @@ export class ContextGuardianCompactionEngine extends BasicCompactionEngine {
     try {
       answers = await answerReviewQuestions(this.ctx, agent, plan, operationSignal);
     } catch (error) {
-      this.ctx.logger.warn(uiMessage(uiLanguage, "reviewCancelled"));
+      this.ctx.logger.warn(uiMessageWithError(uiLanguage, "reviewCancelled", error));
       return preview;
     }
     if (!needsRevision(plan, answers)) {
@@ -224,7 +230,7 @@ export class ContextGuardianCompactionEngine extends BasicCompactionEngine {
     try {
       guidance = await bridge.revisionGuidance(this.ctx, agent, plan, answers, operationSignal);
     } catch (error) {
-      this.ctx.logger.warn(uiMessage(uiLanguage, "revisionUnavailable"));
+      this.ctx.logger.warn(uiMessageWithError(uiLanguage, "revisionUnavailable", error));
       return preview;
     }
     if (!guidance.text) return preview;
@@ -233,7 +239,7 @@ export class ContextGuardianCompactionEngine extends BasicCompactionEngine {
       debug(this.ctx, "running one guided native final compaction");
       return await super.summarize(nativeInputWithGuidance(input, guidance.text), agent, signal);
     } catch (error) {
-      this.ctx.logger.warn(uiMessage(uiLanguage, "finalFailed"));
+      this.ctx.logger.warn(uiMessageWithError(uiLanguage, "finalFailed", error));
       return preview;
     }
   }

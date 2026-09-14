@@ -25,6 +25,19 @@ python3 -m pip install context-guardian-core
 dsh plugin --profile web add context-guardian-deepseek-harness
 ```
 
+The adapter and Python core share a versioned bridge contract and must stay on
+the same `0.2.x` release line. Pin both sides when reproducing a published setup;
+for example, the `0.2.1` pair is:
+
+```bash
+python3 -m pip install "context-guardian-core==0.2.1"
+dsh plugin --profile web add context-guardian-deepseek-harness@0.2.1
+```
+
+If an older core does not recognize an operation used by the adapter, the
+adapter's fail-open warning includes the underlying bridge error instead of
+silently hiding the compatibility problem.
+
 For a source checkout, replace the package name with
 `/absolute/path/to/ContextGuardian/adapters/deepseek-harness`.
 

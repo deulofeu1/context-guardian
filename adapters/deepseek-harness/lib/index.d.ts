@@ -5,6 +5,9 @@ export declare const name = "context-guardian-deepseek-harness";
 type NativeSummarize = BasicCompactionEngine["summarize"];
 type NativeSummarizeInput = Parameters<NativeSummarize>[0];
 type NativeSummarizeResult = Awaited<ReturnType<NativeSummarize>>;
+type UiLanguage = "zh-CN" | "en";
+type UiMessageKey = "auditUnavailable" | "reviewCancelled" | "revisionUnavailable" | "finalFailed";
+export declare function uiMessageWithError(language: UiLanguage, key: UiMessageKey, error: unknown): string;
 export declare function answersForNoUi(plan: ReviewPlan): Array<{
     question_id: string;
     topic_id: string;
