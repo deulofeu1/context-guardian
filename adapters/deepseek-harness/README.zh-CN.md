@@ -28,6 +28,17 @@ python3 -m pip install context-guardian-core
 dsh plugin --profile web add context-guardian-deepseek-harness
 ```
 
+适配器与 Python 核心共用带版本的 bridge 合同，必须保持在同一条 `0.2.x` 发布线上。
+复现已发布配置时请固定两边的版本；例如 `0.2.1` 配对安装如下：
+
+```bash
+python3 -m pip install "context-guardian-core==0.2.1"
+dsh plugin --profile web add context-guardian-deepseek-harness@0.2.1
+```
+
+如果旧核心不认识适配器使用的操作，适配器的 fail-open warning 会包含底层 bridge
+错误，不再静默隐藏兼容性问题。
+
 从源码试用时，可以把包名替换为：
 
 ```bash

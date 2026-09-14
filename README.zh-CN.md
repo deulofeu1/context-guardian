@@ -73,6 +73,18 @@ python3 -m pip install context-guardian-core
 dsh plugin --profile web add context-guardian-deepseek-harness
 ```
 
+DeepSeek Harness 适配器与 Python 核心共用带版本的 bridge 合同，必须保持在同一条
+`0.2.x` 发布线上；不要只升级 npm 适配器而保留旧的 Python 核心。为保证安装可复现，
+请将核心固定为适配器对应的已发布版本，例如：
+
+```bash
+python3 -m pip install "context-guardian-core==0.2.1"
+dsh plugin --profile web add context-guardian-deepseek-harness@0.2.1
+```
+
+如果 bridge 操作不受支持，适配器现在会把底层错误写入 warning，能够直接识别核心与
+适配器版本不匹配。
+
 需要 DeepSeek Harness `0.1.5-rc.x` 和 Node.js `22.19.0+`。Harness Web 还需要
 额外进行一次 preset 设置，见下面的适配器说明。
 

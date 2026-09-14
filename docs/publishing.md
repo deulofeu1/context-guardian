@@ -52,11 +52,19 @@ package and do not add an `NPM_TOKEN` secret.
 2. Push the commit to `main`.
 3. Open GitHub Actions → `Publish packages` → `Run workflow`.
 4. Select the package set that has a new version: `python`, `pi`,
-   `deepseek-harness`, or `all`.
+   `deepseek-harness`, `python-and-deepseek-harness`, or `all`.
 
 Use `all` only when the Python core and both npm packages all have new versions.
 Selecting `pi` or `deepseek-harness` publishes only that adapter, so a patch release
 does not try to republish an existing version of the other npm package.
+
+The `all` workflow publishes the Python package first and waits for it to succeed
+before publishing npm packages. This prevents a new adapter protocol from becoming
+available while the matching Python core is still unavailable. For a DeepSeek
+Harness compatibility release, update and verify the Python core and adapter
+together, then select `python-and-deepseek-harness`. Use `all` only when the Pi
+package also has a new version. All combined options publish Python first and only
+then publish the matching npm package(s).
 
 The npm job installs npm 11.5.1+, requests the GitHub OIDC identity token, runs the
 checks, and publishes the selected npm package(s) without a registry token.

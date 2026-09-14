@@ -11,6 +11,7 @@ on:
         options:
           - all
           - python
+          - python-and-deepseek-harness
           - pi
           - deepseek-harness
 
@@ -19,7 +20,7 @@ permissions:
 
 jobs:
   python:
-    if: ${{ inputs.package == 'all' || inputs.package == 'python' }}
+    if: ${{ inputs.package == 'all' || inputs.package == 'python' || inputs.package == 'python-and-deepseek-harness' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -34,7 +35,13 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
 
   npm:
-    if: ${{ inputs.package == 'all' || inputs.package == 'pi' || inputs.package == 'deepseek-harness' }}
+    needs: python
+    # Keep standalone npm releases possible when the Python job is skipped, but
+    # publish npm packages only after Python succeeds for an all-package release.
+    if: >-
+      ${{ always() && ((inputs.package == 'all' && needs.python.result == 'success') ||
+      inputs.package == 'pi' || inputs.package == 'deepseek-harness' ||
+      (inputs.package == 'python-and-deepseek-harness' && needs.python.result == 'success')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -63,5 +70,5 @@ jobs:
         if: ${{ inputs.package == 'all' || inputs.package == 'pi' }}
         run: npm publish --workspace adapters/pi --access public
       - name: Publish DeepSeek Harness package
-        if: ${{ inputs.package == 'all' || inputs.package == 'deepseek-harness' }}
+        if: ${{ inputs.package == 'all' || inputs.package == 'deepseek-harness' || inputs.package == 'python-and-deepseek-harness' }}
         run: npm publish --workspace adapters/deepseek-harness --access public

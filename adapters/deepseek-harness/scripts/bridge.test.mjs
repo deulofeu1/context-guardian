@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 import { GuardianBridge, normalizeDeepSeekMessages, preferredLanguage, pythonCommand, pythonEnvironment } from "../lib/bridge.js";
-import { ContextGuardianCompactionEngine, answersForNoUi, needsRevision } from "../lib/index.js";
+import { ContextGuardianCompactionEngine, answersForNoUi, needsRevision, uiMessageWithError } from "../lib/index.js";
 
 const repositoryRoot = resolve(new URL("../../../", import.meta.url).pathname);
 const pythonCandidates = [
@@ -109,6 +109,17 @@ test("DeepSeek no-UI resolution follows recommendations and preserves correction
   };
   assert.deepEqual(answersForNoUi(plan), [{ question_id: "q1", topic_id: "t1", action: "keep" }]);
   assert.equal(needsRevision(plan, [{ action: "drop" }]), true);
+});
+
+test("DeepSeek fallback warnings preserve bridge error details", () => {
+  assert.match(
+    uiMessageWithError("en", "auditUnavailable", new Error("unsupported operation")),
+    /unsupported operation/,
+  );
+  assert.match(
+    uiMessageWithError("zh-CN", "auditUnavailable", "core is unavailable"),
+    /core is unavailable/,
+  );
 });
 
 test("Python bridge keeps the minimal environment and Windows runtime variables", () => {
