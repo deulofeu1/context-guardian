@@ -32,6 +32,7 @@ from .provenance import (
     evidence_matches_source,
     is_execution_noise,
     is_source_allowed,
+    normalize_evidence_text,
     normalize_messages,
 )
 
@@ -337,6 +338,58 @@ def _short(content: str, limit: int = 220) -> str:
     return re.sub(r"\s+", " ", content).strip()[:limit]
 
 
+def _source_context(source: str, evidence: str, *, limit: int = 500) -> str:
+    """Return a complete source sentence or bounded source context.
+
+    Providers often cite the most distinctive phrase in a message. That
+    phrase is not a suitable durable fact by itself, so expand it to the
+    sentence or source line that contains it while keeping the result
+    source-exact.
+    """
+
+    normalized_source = re.sub(r"\s+", " ", str(source or "")).strip()
+    normalized_evidence = normalize_evidence_text(evidence)
+    if not normalized_source or not normalized_evidence:
+        return ""
+    if normalized_evidence not in normalize_evidence_text(normalized_source):
+        return ""
+
+    segments = [
+        segment.strip()
+        for segment in re.split(r"(?<=[.!?。！？])\s+|\n+", normalized_source)
+        if segment.strip()
+    ]
+    matching = [
+        segment
+        for segment in segments
+        if normalized_evidence in normalize_evidence_text(segment)
+    ]
+    for segment in matching:
+        if not is_execution_noise(segment):
+            return segment[:limit].rstrip()
+
+    # If the source has no sentence boundary, retain the whole source when it
+    # is reasonably sized. This remains safer than a provider paraphrase or a
+    # mid-sentence evidence slice.
+    if len(normalized_source) <= limit and not is_execution_noise(normalized_source):
+        return normalized_source
+    return ""
+
+
+def _grounded_source_fact(finding: AuditFinding, source_index: SourceIndex) -> str:
+    """Find a readable, source-exact fact for a validated provider finding."""
+
+    for message_id in finding.source_message_ids:
+        source = source_index.allowed(message_id)
+        if source is None:
+            continue
+        for evidence in finding.evidence_snippets:
+            context = _source_context(source.content, evidence)
+            if context:
+                return context
+    return ""
+
+
 def _topic_key(content: str, category: CandidateCategory) -> str:
     lower = content.casefold()
     if any(word in lower for word in ("npm", "pip", "python", "node", "package")):
@@ -401,20 +454,35 @@ class PreviewAuditor:
                 else [audit_input]
             )
             grounded_findings: list[AuditFinding] = []
+            provider_review_finding_ids: set[str] = set()
             for item in inputs:
                 provider_plan = self.provider.generate_structured(
                     self._provider_prompt(item.text, selected_language, max_review_questions),
                     ReviewPlan,
                 )
-                grounded_findings.extend(
-                    self._sanitize_provider_findings(
-                        provider_plan.findings,
-                        SourceIndex.from_messages(item.source_messages),
-                        selected_language,
+                source_index = SourceIndex.from_messages(item.source_messages)
+                sanitized = self._sanitize_provider_findings(
+                    provider_plan.findings,
+                    source_index,
+                    selected_language,
+                )
+                grounded_findings.extend(sanitized)
+                provider_review_finding_ids.update(
+                    self._provider_review_finding_ids(
+                        provider_plan,
+                        {finding.id for finding in sanitized},
                     )
                 )
+            grounded_findings = self._deduplicate_findings(grounded_findings)
+            if provider_review_finding_ids:
+                grounded_findings = [
+                    finding.model_copy(update={"issue_type": AuditIssueType.AMBIGUOUS})
+                    if finding.id in provider_review_finding_ids
+                    else finding
+                    for finding in grounded_findings
+                ]
             return self._build_grounded_plan(
-                self._deduplicate_findings(grounded_findings),
+                grounded_findings,
                 selected_language,
                 max_review_questions,
             )
@@ -461,8 +529,8 @@ class PreviewAuditor:
                 source_index,
             ):
                 continue
-            evidence = _short(finding.evidence_snippets[0], 180)
-            if not evidence:
+            source_fact = _grounded_source_fact(finding, source_index)
+            if not source_fact:
                 continue
             why = _localized(
                 language,
@@ -472,16 +540,43 @@ class PreviewAuditor:
             sanitized.append(
                 finding.model_copy(
                     update={
-                        "summary": evidence,
+                        "summary": source_fact,
                         "why_it_matters": why,
-                        # Never write an arbitrary provider correction.  The
-                        # only accepted correction is exact source evidence.
-                        "suggested_correction": evidence,
-                        "evidence_snippets": [evidence],
+                        # Never write an arbitrary provider correction. The
+                        # accepted correction is complete source context that
+                        # contains the validated evidence, not the raw phrase
+                        # the provider happened to cite.
+                        "suggested_correction": source_fact,
+                        "evidence_snippets": [source_fact],
                     }
                 )
             )
         return sanitized
+
+    @staticmethod
+    def _provider_review_finding_ids(
+        provider_plan: ReviewPlan,
+        accepted_finding_ids: set[str],
+    ) -> set[str]:
+        """Resolve provider review requests to source-validated findings.
+
+        Provider question text is untrusted and is not copied into the UI. A
+        question is honored only when its topic (or direct finding reference)
+        points at a finding that passed request-local source validation.
+        """
+
+        topics = {topic.id: topic for topic in provider_plan.audit_topics}
+        requested: set[str] = set()
+        for topic in provider_plan.audit_topics:
+            if topic.disposition is AuditDisposition.ASK_USER:
+                requested.update(topic.finding_ids)
+        for question in provider_plan.review_questions:
+            topic = topics.get(question.topic_id)
+            if topic is not None:
+                requested.update(topic.finding_ids)
+            elif question.topic_id in accepted_finding_ids:
+                requested.add(question.topic_id)
+        return requested & accepted_finding_ids
 
     def _build_grounded_plan(
         self,
@@ -531,6 +626,9 @@ transient errors as accepted omissions. Never put those raw strings in review qu
 Group related findings into semantic topics. Ask at most {max_questions} questions and
 ask only about uncertain topics that affect future work. Keep evidence to two concise
 natural-language lines. Do not invent corrections. The UI language is {language}.
+When a topic needs user judgment, mark its findings with issue_type="ambiguous", include
+those finding IDs in an audit_topics entry, and reference that topic from review_questions.
+The host will regenerate the visible question from validated source context.
 Return the ReviewPlan schema exactly; auto_corrections must be incremental source-backed
 corrections, not a complete summary.
 

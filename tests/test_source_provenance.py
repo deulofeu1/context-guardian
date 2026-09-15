@@ -1,5 +1,5 @@
 from context_guardian import ContextGuardian
-from context_guardian.models import ReviewPlan
+from context_guardian.models import AuditTopic, ReviewOption, ReviewPlan, ReviewQuestion
 
 
 def finding(*, source_id: str, evidence: str, category: str = "decision") -> dict:
@@ -115,6 +115,99 @@ def test_provider_evidence_must_match_source_and_arbitrary_correction_is_ignored
     plan = ContextGuardian(provider=provider).audit_preview(messages, preview="")
     assert plan.findings == []
     assert plan.auto_corrections == []
+
+
+def test_provider_review_question_is_honored_after_finding_grounding():
+    messages = [
+        {
+            "id": "side-topic",
+            "role": "user",
+            "content": "I am unsure whether to keep the optional adapter discussion.",
+        }
+    ]
+    provider = StaticAuditProvider(
+        ReviewPlan(
+            language="en",
+            findings=[
+                finding(
+                    source_id="side-topic",
+                    evidence="optional adapter discussion",
+                    category="important_fact",
+                )
+            ],
+            audit_topics=[
+                AuditTopic(
+                    id="provider-topic",
+                    title="Optional adapter discussion",
+                    summary="The optional adapter discussion may matter later.",
+                    finding_ids=["finding-side-topic"],
+                    impact=0.55,
+                    confidence=0.55,
+                    relevance_to_main_goal=0.35,
+                    requires_user_preference=True,
+                    disposition="ask_user",
+                    recommended_action="drop",
+                    suggested_correction="optional adapter discussion",
+                )
+            ],
+            review_questions=[
+                ReviewQuestion(
+                    id="provider-question",
+                    topic_id="provider-topic",
+                    title="Optional adapter discussion",
+                    question="Should this be retained?",
+                    context="The provider requested a decision.",
+                    why_it_matters="It may affect future work.",
+                    recommendation="drop",
+                    options=[
+                        ReviewOption(id="keep", label="Keep", description="Keep the conclusion."),
+                        ReviewOption(id="drop", label="Drop", description="Accept the preview."),
+                    ],
+                )
+            ],
+        )
+    )
+
+    plan = ContextGuardian(provider=provider).audit_preview(messages, preview="")
+
+    assert len(plan.review_questions) == 1
+    assert plan.review_questions[0].topic_id == plan.audit_topics[0].id
+    assert plan.findings[0].issue_type == "ambiguous"
+
+
+def test_provider_facts_expand_short_evidence_to_complete_source_context():
+    messages = [
+        {
+            "id": "scroll",
+            "role": "user",
+            "content": "The user needs to scroll to continue reading the full report.",
+        },
+        {
+            "id": "lost-middle",
+            "role": "user",
+            "content": "The discussion covered Lost-in-Middle retrieval failures.",
+        },
+    ]
+    provider = StaticAuditProvider(
+        ReviewPlan(
+            language="en",
+            findings=[
+                finding(source_id="scroll", evidence="needs to scroll", category="important_fact"),
+                finding(source_id="lost-middle", evidence="Lost-in-Middle", category="important_fact"),
+            ],
+        )
+    )
+
+    guardian = ContextGuardian(provider=provider)
+    plan = guardian.audit_preview(messages, preview="")
+    appendix = guardian.build_reviewed_facts(review_plan=plan, messages=messages)
+
+    corrections = set(plan.auto_corrections)
+    assert "The user needs to scroll to continue reading the full report." in corrections
+    assert "The discussion covered Lost-in-Middle retrieval failures." in corrections
+    assert "needs to scroll" not in corrections
+    assert "Lost-in-Middle" not in corrections
+    assert "The user needs to scroll to continue reading the full report." in appendix.text
 
 
 def test_large_ambiguous_input_is_bounded_and_topics_are_grouped():
