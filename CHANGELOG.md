@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.2 - 2026-09-15 (Host audit review and fact rendering)
+
+- Preserved source-grounded Host Provider review requests so uncertain topics can
+  reach the bounded interactive Review UI instead of being silently discarded.
+- Expanded short provider evidence phrases to complete source sentences or
+  bounded source context before writing Reviewed Facts.
+- Added regression coverage for Host Provider Review reachability and complete
+  Reviewed Facts rendering, including short noun-phrase evidence.
+
 ## 0.3.1 - 2026-09-14 (Source-grounded audit)
 
 - Added explicit host-message provenance so system, plugin planning metadata,
