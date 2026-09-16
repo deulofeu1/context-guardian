@@ -202,10 +202,17 @@ class ContextGuardian:
         normalized = [ConversationMessage.model_validate(message) for message in messages]
         try:
             return self.inspect(normalized)
-        except Exception:
+        except Exception as error:
             candidates = self.rule_inspector.inspect(normalized, self.policy)
+            message = (
+                f"Host-model inspection failed ({type(error).__name__}); degraded to local rules."
+            )
             return InspectionResult.from_candidates(
-                candidates, mode="rules", policy_version=self.policy.version
+                candidates,
+                mode="rules",
+                policy_version=self.policy.version,
+                degraded=True,
+                diagnostics=[message],
             )
 
     def audit_preview(
@@ -262,11 +269,11 @@ class ContextGuardian:
                 language=language,
                 max_review_questions=max_review_questions,
             )
-        except Exception:
+        except Exception as error:
             from .audit import PreviewAuditor
             from .review import configured_max_review_questions
 
-            return PreviewAuditor(
+            fallback = PreviewAuditor(
                 policy=self.policy,
                 rule_inspector=self.rule_inspector,
             ).audit(
@@ -277,6 +284,21 @@ class ContextGuardian:
                 language=language,
                 max_review_questions=configured_max_review_questions(max_review_questions),
             )
+            selected_language = fallback.language
+            message = (
+                f"宿主模型审计失败（{type(error).__name__}）；已降级到本地规则，未使用未经验证的模型结果。"
+                if selected_language == "zh-CN"
+                else (
+                    f"Host-model audit failed ({type(error).__name__}); degraded to local rules "
+                    "without using unverified model output."
+                )
+            )
+            return fallback.model_copy(update={
+                "audit_status": "rules_fallback",
+                "degraded": True,
+                "degradation_reason": type(error).__name__,
+                "diagnostics": [*fallback.diagnostics, message][:5],
+            })
 
     def build_revision_guidance(
         self,

@@ -17,6 +17,7 @@ from collections.abc import Iterable
 from pydantic import BaseModel, Field
 
 from .models import (
+    AuditCoverage,
     AuditDisposition,
     AuditFinding,
     AuditIssueType,
@@ -52,6 +53,8 @@ class AuditInput(BaseModel):
 
     text: str
     message_ids: list[str] = Field(default_factory=list)
+    source_message_ids: list[str] = Field(default_factory=list)
+    omitted_message_ids: list[str] = Field(default_factory=list)
     truncated: bool = False
     source_messages: list[ConversationMessage] = Field(default_factory=list, exclude=True)
 
@@ -119,7 +122,10 @@ class AuditInputBuilder:
     def select_messages(
         self, messages: Iterable[ConversationMessage | dict]
     ) -> tuple[list[ConversationMessage], bool]:
-        normalized = normalize_messages(messages)
+        normalized = [
+            message.model_copy(update={"id": message.id or f"message_{index + 1:04d}"})
+            for index, message in enumerate(normalize_messages(messages))
+        ]
         eligible = [message for message in normalized if is_source_allowed(message)]
         ranked = sorted(
             enumerate(eligible),
@@ -145,7 +151,10 @@ class AuditInputBuilder:
         retained_context: str = "",
         language: str | None = None,
     ) -> AuditInput:
-        normalized = normalize_messages(messages)
+        normalized = [
+            message.model_copy(update={"id": message.id or f"message_{index + 1:04d}"})
+            for index, message in enumerate(normalize_messages(messages))
+        ]
         selected, truncated = self.select_messages(normalized)
         fixed = [
             self._complete_field("NATIVE PREVIEW", preview, self.max_chars // 2),
@@ -158,21 +167,28 @@ class AuditInputBuilder:
         source_blocks: list[str] = []
         used = 0
         selected_ids: list[str] = []
-        for message in selected:
-            message_id = self._message_id(message, 0)
+        source_ids = [self._message_id(message, index) for index, message in enumerate(selected)]
+        omitted_ids: list[str] = []
+        included_messages: list[ConversationMessage] = []
+        for index, message in enumerate(selected):
+            message_id = self._message_id(message, index)
             block = f"[{message.role} id={message_id}]\n{message.content}"
             if used + len(block) + 2 > available:
                 truncated = True
+                omitted_ids.append(message_id)
                 continue
             source_blocks.append(block)
             selected_ids.append(message_id)
+            included_messages.append(message)
             used += len(block) + 2
         text = fixed_text + "\n\nORIGINAL SOURCE SIGNALS:\n" + "\n\n".join(source_blocks)
         return AuditInput(
             text=text,
             message_ids=selected_ids,
-            truncated=truncated,
-            source_messages=selected,
+            source_message_ids=source_ids,
+            omitted_message_ids=omitted_ids,
+            truncated=truncated or bool(omitted_ids),
+            source_messages=included_messages,
         )
 
     def build_chunks(
@@ -185,7 +201,10 @@ class AuditInputBuilder:
         language: str | None = None,
     ) -> list[AuditInput]:
         """Partition source messages at message boundaries for large audits."""
-        normalized = normalize_messages(messages)
+        normalized = [
+            message.model_copy(update={"id": message.id or f"message_{index + 1:04d}"})
+            for index, message in enumerate(normalize_messages(messages))
+        ]
         normalized = [message for message in normalized if is_source_allowed(message)]
         if not normalized:
             return [
@@ -209,6 +228,14 @@ class AuditInputBuilder:
             if cost <= self.max_chars // 2:
                 current.append(message)
                 current_cost += cost
+            else:
+                # Keep an explicit one-message chunk so callers can report
+                # incomplete coverage instead of silently dropping long input.
+                if current:
+                    chunks.append(current)
+                    current = []
+                    current_cost = 0
+                chunks.append([message])
         if current:
             chunks.append(current)
         return [
@@ -467,23 +494,59 @@ class PreviewAuditor:
             grounded_findings: list[AuditFinding] = []
             provider_review_finding_ids: set[str] = set()
             raw_provider_findings = 0
+            provider_successes = 0
+            failed_chunks = 0
+            attempted_ids: set[str] = set()
+            covered_ids: set[str] = set()
+            diagnostics: list[str] = []
+            accepted_omissions: list[str] = []
+            provider_id_map: dict[str, str] = {}
             for item in inputs:
-                provider_plan = self.provider.generate_structured(
-                    self._provider_prompt(item.text, selected_language, max_review_questions),
-                    ReviewPlan,
-                )
+                attempted_ids.update(item.source_message_ids)
+                covered_ids.update(item.message_ids)
+                try:
+                    provider_plan = self.provider.generate_structured(
+                        self._provider_prompt(item.text, selected_language, max_review_questions),
+                        ReviewPlan,
+                    )
+                except Exception as error:
+                    failed_chunks += 1
+                    diagnostics.append(
+                        _localized(
+                            selected_language,
+                            f"宿主模型审计分块失败（{type(error).__name__}）：已对该分块降级到本地规则；先前成功结果仍保留。",
+                            f"Host-model audit chunk failed ({type(error).__name__}); this chunk used local "
+                            "rules "
+                            "while earlier successful results were retained.",
+                        )
+                    )
+                    local = self._local_audit(
+                        item.source_messages,
+                        preview=preview,
+                        previous_summary=previous_summary,
+                        retained_context=retained_context,
+                        language=selected_language,
+                        max_review_questions=max_review_questions,
+                    )
+                    grounded_findings.extend(local.findings)
+                    accepted_omissions.extend(local.accepted_omissions)
+                    continue
+                provider_successes += 1
                 raw_provider_findings += len(provider_plan.findings)
                 source_index = SourceIndex.from_messages(item.source_messages)
                 sanitized = self._sanitize_provider_findings(
                     provider_plan.findings,
                     source_index,
                     selected_language,
+                    provider_id_map=provider_id_map,
                 )
                 grounded_findings.extend(sanitized)
+                accepted_omissions.extend(provider_plan.accepted_omissions)
                 provider_review_finding_ids.update(
                     self._provider_review_finding_ids(
                         provider_plan,
                         {finding.id for finding in sanitized},
+                        provider_id_map,
                     )
                 )
             grounded_findings = self._deduplicate_findings(grounded_findings)
@@ -494,8 +557,7 @@ class PreviewAuditor:
                     else finding
                     for finding in grounded_findings
                 ]
-            diagnostics: list[str] = []
-            if raw_provider_findings and not grounded_findings:
+            if raw_provider_findings and not grounded_findings and not failed_chunks:
                 diagnostics.append(
                     _localized(
                         selected_language,
@@ -504,6 +566,36 @@ class PreviewAuditor:
                         f"Host audit diagnostic: raw={raw_provider_findings} kept=0 "
                         "reason=evidence_not_verbatim. No finding passed verbatim source-evidence "
                         "validation, so no Review question or ungrounded fact was added.",
+                    )
+                )
+            coverage = AuditCoverage(
+                total_source_messages=len({
+                    message.id or f"message_{index + 1:04d}"
+                    for index, message in enumerate(normalized)
+                    if is_source_allowed(message)
+                }),
+                attempted_source_messages=len(attempted_ids),
+                covered_source_messages=len(covered_ids),
+                failed_chunks=failed_chunks,
+                chunks=len(inputs),
+                complete=(
+                    failed_chunks == 0
+                    and len(covered_ids) >= len({
+                        message.id or f"message_{index + 1:04d}"
+                        for index, message in enumerate(normalized)
+                        if is_source_allowed(message)
+                    })
+                    and all(not item.omitted_message_ids for item in inputs)
+                ),
+            )
+            if not coverage.complete:
+                diagnostics.append(
+                    _localized(
+                        selected_language,
+                        f"审计覆盖不完整：{coverage.covered_source_messages}/"
+                        f"{coverage.total_source_messages} 条来源消息进入模型输入。",
+                        f"Audit coverage is incomplete: {coverage.covered_source_messages}/"
+                        f"{coverage.total_source_messages} source messages reached the host model.",
                     )
                 )
             if os.environ.get("CONTEXT_GUARDIAN_DEBUG") == "1":
@@ -518,6 +610,15 @@ class PreviewAuditor:
                 selected_language,
                 max_review_questions,
                 diagnostics=diagnostics,
+                accepted_omissions=accepted_omissions,
+                coverage=coverage,
+                audit_status=(
+                    "model_failed" if failed_chunks and provider_successes == 0
+                    else "incomplete" if failed_chunks or not coverage.complete
+                    else "source_rejected" if raw_provider_findings and not grounded_findings
+                    else "success"
+                ),
+                degraded=bool(failed_chunks or not coverage.complete),
             )
         return self._local_audit(
             normalized,
@@ -532,7 +633,16 @@ class PreviewAuditor:
     def _deduplicate_findings(findings: Iterable[AuditFinding]) -> list[AuditFinding]:
         result: list[AuditFinding] = []
         seen: set[tuple[str, str, tuple[str, ...]]] = set()
-        for finding in findings:
+        ordered = sorted(
+            findings,
+            key=lambda finding: (
+                -finding.importance,
+                -finding.confidence,
+                finding.category.value,
+                finding.id,
+            ),
+        )
+        for finding in ordered:
             key = (
                 finding.category.value,
                 finding.summary.casefold(),
@@ -551,6 +661,8 @@ class PreviewAuditor:
         findings: Iterable[AuditFinding],
         source_index: SourceIndex,
         language: str,
+        *,
+        provider_id_map: dict[str, str] | None = None,
     ) -> list[AuditFinding]:
         """Accept only findings grounded in this request's real source messages."""
 
@@ -571,9 +683,21 @@ class PreviewAuditor:
                 "这条来源明确的项目状态可能影响后续实现。",
                 "This explicit source-backed project state may affect future implementation.",
             )
+            stable_id = "finding_" + hashlib.sha1(
+                "|".join(
+                    [
+                        finding.category.value,
+                        source_fact,
+                        ",".join(sorted(finding.source_message_ids)),
+                    ]
+                ).encode()
+            ).hexdigest()[:12]
+            if provider_id_map is not None:
+                provider_id_map[finding.id] = stable_id
             sanitized.append(
                 finding.model_copy(
                     update={
+                        "id": stable_id,
                         "summary": display_summary,
                         "display_summary": display_summary,
                         "why_it_matters": why,
@@ -592,6 +716,7 @@ class PreviewAuditor:
     def _provider_review_finding_ids(
         provider_plan: ReviewPlan,
         accepted_finding_ids: set[str],
+        provider_id_map: dict[str, str] | None = None,
     ) -> set[str]:
         """Resolve provider review requests to source-validated findings.
 
@@ -611,7 +736,8 @@ class PreviewAuditor:
                 requested.update(topic.finding_ids)
             elif question.topic_id in accepted_finding_ids:
                 requested.add(question.topic_id)
-        return requested & accepted_finding_ids
+        mapped = {provider_id_map.get(item, item) for item in requested} if provider_id_map else requested
+        return mapped & accepted_finding_ids
 
     def _build_grounded_plan(
         self,
@@ -620,9 +746,15 @@ class PreviewAuditor:
         max_review_questions: int,
         *,
         diagnostics: Iterable[str] = (),
+        accepted_omissions: Iterable[str] = (),
+        coverage: AuditCoverage | None = None,
+        audit_status: str = "success",
+        degraded: bool = False,
+        degradation_reason: str | None = None,
     ) -> ReviewPlan:
+        raw_topics = self._make_topics(findings, language)[:MAX_AUDIT_TOPICS]
         topics = self._apply_review_budget(
-            self._make_topics(findings, language)[:MAX_AUDIT_TOPICS],
+            raw_topics,
             max_review_questions,
         )
         questions = self._make_questions(topics, language, max_review_questions)
@@ -649,8 +781,20 @@ class PreviewAuditor:
             findings=findings,
             audit_topics=topics,
             auto_corrections=auto_corrections,
+            accepted_omissions=_unique(accepted_omissions),
             review_questions=questions,
             diagnostics=_unique(diagnostics),
+            audit_status=(
+                "budget_exhausted"
+                if max_review_questions == 0
+                and any(topic.disposition is AuditDisposition.ASK_USER for topic in raw_topics)
+                else "no_issues"
+                if not findings and not questions and audit_status == "success"
+                else audit_status
+            ),
+            degraded=degraded,
+            degradation_reason=degradation_reason,
+            coverage=coverage or AuditCoverage(),
         )
 
     @staticmethod
@@ -731,7 +875,15 @@ corrections, not a complete summary.
             "This explicit source-backed project state may affect future implementation.",
         )
         return AuditFinding(
-            id=f"finding_{hashlib.sha1(candidate.id.encode()).hexdigest()[:12]}",
+            id="finding_" + hashlib.sha1(
+                "|".join(
+                    [
+                        candidate.category.value,
+                        candidate.content,
+                        ",".join(sorted(candidate.source_message_ids)),
+                    ]
+                ).encode()
+            ).hexdigest()[:12],
             issue_type=issue_type,
             category=candidate.category,
             summary=_short(candidate.content),
@@ -1015,9 +1167,15 @@ def validate_review_plan(
         SourceIndex.from_messages(normalized),
         plan.language,
     )
-    return auditor._build_grounded_plan(
+    rebuilt = auditor._build_grounded_plan(
         auditor._deduplicate_findings(findings),
         plan.language,
         max_review_questions,
         diagnostics=plan.diagnostics,
+        accepted_omissions=plan.accepted_omissions,
+        coverage=plan.coverage,
+        audit_status=plan.audit_status,
+        degraded=plan.degraded,
+        degradation_reason=plan.degradation_reason,
     )
+    return rebuilt

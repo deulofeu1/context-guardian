@@ -162,23 +162,44 @@ export class GuardianBridge {
         let stderr = "";
         let childError;
         let timedOut = false;
+        let aborted = signal.aborted;
+        const operationController = new AbortController();
         child.once("error", (error) => { childError = error; });
+        child.stdin.once("error", (error) => { childError = error; });
         child.stderr.on("data", (chunk) => { stderr = `${stderr}${String(chunk)}`.slice(-4000); });
-        const abort = () => child.kill("SIGTERM");
+        const abort = () => {
+            aborted = true;
+            operationController.abort();
+            child.kill("SIGTERM");
+        };
         signal.addEventListener("abort", abort, { once: true });
         const limit = timeoutMs();
         const timer = setTimeout(() => {
             timedOut = true;
+            operationController.abort();
             child.kill("SIGTERM");
         }, limit);
+        const writeFrame = (frame) => {
+            if (child.stdin.destroyed || child.stdin.writableEnded) {
+                throw new GuardianBridgeError("Context Guardian bridge input is closed", "process_exit");
+            }
+            try {
+                child.stdin.write(JSON.stringify(frame) + "\n");
+            }
+            catch (error) {
+                throw new GuardianBridgeError(`Context Guardian bridge write failed: ${error instanceof Error ? error.message : String(error)}`, "process_exit");
+            }
+        };
         try {
-            child.stdin.write(JSON.stringify({
+            if (aborted)
+                throw new GuardianBridgeError("Context Guardian request was aborted", "aborted");
+            writeFrame({
                 protocol_version: PROTOCOL_VERSION,
                 type: "request",
                 request_id: requestId,
                 operation,
                 ...body,
-            }) + "\n");
+            });
             for await (const line of readline) {
                 if (!line.trim())
                     continue;
@@ -200,23 +221,23 @@ export class GuardianBridge {
                         throw new GuardianBridgeError("Context Guardian provider request is malformed", "protocol");
                     }
                     try {
-                        const data = await generateStructuredWithHost(ctx, agent, frame.prompt, frame.schema, signal);
-                        child.stdin.write(JSON.stringify({
+                        const data = await generateStructuredWithHost(ctx, agent, frame.prompt, frame.schema, operationController.signal);
+                        writeFrame({
                             protocol_version: PROTOCOL_VERSION,
                             type: "provider_response",
                             request_id: frame.request_id,
                             ok: true,
                             data,
-                        }) + "\n");
+                        });
                     }
                     catch (error) {
-                        child.stdin.write(JSON.stringify({
+                        writeFrame({
                             protocol_version: PROTOCOL_VERSION,
                             type: "provider_response",
                             request_id: frame.request_id,
                             ok: false,
                             error: error instanceof Error ? error.message : String(error),
-                        }) + "\n");
+                        });
                     }
                     continue;
                 }
@@ -234,12 +255,15 @@ export class GuardianBridge {
             if (timedOut) {
                 throw new GuardianBridgeError(`Context Guardian timed out after ${String(limit)} ms`, "timeout");
             }
+            if (aborted)
+                throw new GuardianBridgeError("Context Guardian request was aborted", "aborted");
             throw new GuardianBridgeError(stderr || "Context Guardian process exited without a result", "process_exit");
         }
         finally {
             clearTimeout(timer);
             signal.removeEventListener("abort", abort);
             readline.close();
+            operationController.abort();
             if (!child.killed)
                 child.kill("SIGTERM");
         }

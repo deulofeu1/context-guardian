@@ -12,6 +12,7 @@ from .checkpoint import build_checkpoint
 from .guidance import build_guidance, build_revision_guidance
 from .inspector import ContextGuardian, RuleBasedInspector
 from .models import (
+    AuditCoverage,
     AuditDisposition,
     AuditFinding,
     AuditIssueType,
@@ -44,10 +45,11 @@ from .reviewed_facts import (
 )
 from .verification import verify_conversation, verify_file
 
-__version__ = "0.3.3"
+__version__ = "0.3.4"
 
 __all__ = [
     "CandidateCategory",
+    "AuditCoverage",
     "AuditDisposition",
     "AuditFinding",
     "AuditInput",

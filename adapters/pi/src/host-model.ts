@@ -1,6 +1,6 @@
 import { contentText } from "@earendil-works/pi-ai";
 import { completeSimple } from "@earendil-works/pi-ai/compat";
-import type { Context, Model } from "@earendil-works/pi-ai/compat";
+import type { Context, Model, ThinkingLevel } from "@earendil-works/pi-ai/compat";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 function extractJson(text: string): unknown {
@@ -11,6 +11,16 @@ function extractJson(text: string): unknown {
 function cleanHeaders(headers: Record<string, string | null> | undefined): Record<string, string> | undefined {
   if (!headers) return undefined;
   return Object.fromEntries(Object.entries(headers).filter((entry): entry is [string, string] => entry[1] !== null));
+}
+
+function auditReasoning(model: Model<any>): ThinkingLevel | undefined {
+  if (!model.reasoning || model.thinkingLevelMap?.off !== null) return undefined;
+  const supported: ThinkingLevel[] = ["minimal", "low", "medium", "high", "xhigh", "max"];
+  return supported.find((level) => model.thinkingLevelMap?.[level] !== null);
+}
+
+function debug(message: string): void {
+  if (process.env.CONTEXT_GUARDIAN_DEBUG === "1") console.error(`context guardian: ${message}`);
 }
 
 export async function generateStructuredWithHost(
@@ -46,10 +56,20 @@ export async function generateStructuredWithHost(
     apiKey: auth.apiKey,
     headers: cleanHeaders(auth.headers),
     signal,
-    maxTokens: Math.min(model.maxTokens || 4096, 4096),
+    // Keep audit extraction independent from the user's main-session budget.
+    // Pi's API emits the provider's disabled-thinking request when reasoning is
+    // omitted and the model advertises an `off` mapping.
+    ...(auditReasoning(model) === undefined ? {} : { reasoning: auditReasoning(model) }),
+    maxTokens: Math.min(model.maxTokens || 8192, 8192),
   });
+  debug(`host_response provider=${model.provider} model=${model.id} stop=${response.stopReason} textChars=${contentText(response.content).length}`);
   if (response.stopReason === "error" || response.stopReason === "aborted") {
     throw new Error(response.errorMessage ?? `Host model stopped with ${response.stopReason}`);
   }
-  return extractJson(contentText(response.content));
+  if (response.stopReason === "length") {
+    throw new Error("Pi structured Context Guardian extraction reached the token cap");
+  }
+  const text = contentText(response.content);
+  if (!text.trim()) throw new Error("Pi returned no visible structured extraction text");
+  return extractJson(text);
 }

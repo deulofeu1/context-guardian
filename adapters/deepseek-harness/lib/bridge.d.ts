@@ -1,7 +1,7 @@
 import type { Context } from "@deepseek-ai/cordis";
 import type { Agent } from "@deepseek-ai/dsh-agent";
 import type { Guidance, GuardianMessage, InspectionResult, MemoryCandidate, ReviewPlan, ReviewedFactsAppendix } from "./types.js";
-export type GuardianBridgeErrorCode = "spawn" | "timeout" | "protocol" | "process_exit";
+export type GuardianBridgeErrorCode = "spawn" | "timeout" | "aborted" | "protocol" | "process_exit";
 export declare class GuardianBridgeError extends Error {
     readonly code: GuardianBridgeErrorCode;
     constructor(message: string, code: GuardianBridgeErrorCode);

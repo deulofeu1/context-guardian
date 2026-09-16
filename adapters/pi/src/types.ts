@@ -50,6 +50,8 @@ export type InspectionResult = {
   review: MemoryCandidate[];
   mode: "rules" | "provider";
   policy_version: string;
+  degraded?: boolean;
+  diagnostics?: string[];
 };
 
 export type AuditFinding = {
@@ -99,6 +101,15 @@ export type ReviewQuestion = {
   evidence_snippets?: string[];
 };
 
+export type AuditCoverage = {
+  total_source_messages: number;
+  attempted_source_messages: number;
+  covered_source_messages: number;
+  failed_chunks: number;
+  chunks: number;
+  complete: boolean;
+};
+
 export type ReviewPlan = {
   language: "zh-CN" | "en";
   overview: string;
@@ -109,6 +120,10 @@ export type ReviewPlan = {
   accepted_omissions: string[];
   review_questions: ReviewQuestion[];
   diagnostics?: string[];
+  audit_status?: "success" | "no_issues" | "budget_exhausted" | "source_rejected" | "model_failed" | "rules_fallback" | "incomplete";
+  degraded?: boolean;
+  degradation_reason?: string | null;
+  coverage?: AuditCoverage;
 };
 
 export type ReviewedFact = {
