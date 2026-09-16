@@ -27,11 +27,11 @@ dsh plugin --profile web add context-guardian-deepseek-harness
 
 The adapter and Python core share a versioned bridge contract and must stay on
 the same `0.3.x` release line. Pin both sides when reproducing a published setup;
-for example, the `0.3.4` pair is:
+for example, the `0.3.5` pair is:
 
 ```bash
-python3 -m pip install "context-guardian-core==0.3.4"
-dsh plugin --profile web add context-guardian-deepseek-harness@0.3.4
+python3 -m pip install "context-guardian-core==0.3.5"
+dsh plugin --profile web add context-guardian-deepseek-harness@0.3.5
 ```
 
 If an older core does not recognize an operation used by the adapter, the
@@ -128,6 +128,23 @@ should show at most three topic questions; select Keep or Drop and confirm the n
 Preview with its deterministic Reviewed Facts block. It uses a replay model, so no
 DeepSeek API key is required.
 Exit the temporary Web process with Ctrl-C when finished.
+
+For release verification against the real Harness host and its configured model,
+run the same fixture in live mode:
+
+```bash
+CONTEXT_GUARDIAN_DSH_LIVE=1 \
+CONTEXT_GUARDIAN_FIXTURE_PACKAGE=context-guardian-deepseek-harness@0.3.5 \
+npm run dsh-fixture-smoke
+```
+
+Live mode uses the existing DSH home and provider route, so the configured Harness
+credential stays inside Harness and is never passed to Python. It seeds a long session
+with one deliberately unresolved future-relevant topic. In the Web UI, enter
+`/compact`, confirm that a bounded topic-level Review question appears, manually choose
+Keep or Drop, and confirm that native compaction finishes. The exact question is model-
+dependent: if the native Preview already keeps the topic, zero questions is a valid
+result. Use replay mode for deterministic CI and live mode for the actual host/UI check.
 
 ## Disable or uninstall
 

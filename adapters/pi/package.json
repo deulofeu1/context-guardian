@@ -1,6 +1,6 @@
 {
   "name": "@context-guardian/pi",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "Human review before Pi context compaction",
   "type": "module",
   "license": "MIT",
