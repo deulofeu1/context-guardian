@@ -1,11 +1,18 @@
 import type { Context } from "@deepseek-ai/cordis";
 import type { Agent } from "@deepseek-ai/dsh-agent";
 import { BlockAssembler, createUserMessage, LlmError } from "@deepseek-ai/dsh-llm";
+import type { LlmResolvedModelInfo, ReasoningEffortId } from "@deepseek-ai/dsh-llm";
+
+const STRUCTURED_MAX_TOKENS = 8192;
 
 function extractJson(text: string): unknown {
   const trimmed = text.trim();
   const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-  return JSON.parse(fenced?.[1] ?? trimmed);
+  try {
+    return JSON.parse(fenced?.[1] ?? trimmed);
+  } catch (error) {
+    throw new Error(`structured extraction returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 function routeFor(agent: Agent): { provider: string; model: string } {
@@ -18,10 +25,27 @@ function routeFor(agent: Agent): { provider: string; model: string } {
 
 function textFromBlocks(blocks: readonly { type: string; text?: string }[]): string {
   return blocks
-    .filter((block) => block.type === "text" || block.type === "reasoning")
+    // Reasoning is deliberately excluded. On DeepSeek it can consume the
+    // entire output budget while producing no JSON visible to the bridge.
+    .filter((block) => block.type === "text")
     .map((block) => block.text ?? "")
     .join("\n")
     .trim();
+}
+
+function chooseReasoningEffort(info: LlmResolvedModelInfo | undefined): ReasoningEffortId | undefined {
+  const efforts = info?.reasoning?.efforts ?? [];
+  const disabled = efforts.find((effort) => /^(off|disabled|none|false)$/i.test(String(effort.id)));
+  if (disabled) return disabled.id;
+  // If the adapter exposes no disabled mode, use its least expensive advertised
+  // effort rather than inheriting the user's main-session reasoning setting.
+  const preferred = ["minimal", "low", "medium", "high", "xhigh", "max"];
+  return preferred.map((name) => efforts.find((effort) => String(effort.id).toLowerCase() === name)).find(Boolean)?.id
+    ?? efforts[0]?.id;
+}
+
+function debug(message: string): void {
+  if (process.env.CONTEXT_GUARDIAN_DEBUG === "1") console.error(`context guardian: ${message}`);
 }
 
 export async function generateStructuredWithHost(
@@ -32,6 +56,11 @@ export async function generateStructuredWithHost(
   signal: AbortSignal,
 ): Promise<unknown> {
   const route = routeFor(agent);
+  const modelInfo = typeof ctx.llm.resolveModelInfo === "function"
+    ? await ctx.llm.resolveModelInfo(route.provider, route.model, signal)
+    : undefined;
+  const reasoningEffort = chooseReasoningEffort(modelInfo);
+  debug(`host_request provider=${route.provider} model=${route.model} maxTokens=${STRUCTURED_MAX_TOKENS} reasoningEffort=${String(reasoningEffort ?? "omitted")}`);
   const assembler = new BlockAssembler();
   const request = ctx.llm.stream({
     provider: route.provider,
@@ -44,7 +73,8 @@ export async function generateStructuredWithHost(
       }],
       source: { kind: "plugin", plugin: "context-guardian-deepseek-harness" },
     })],
-    maxTokens: 4096,
+    ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+    maxTokens: STRUCTURED_MAX_TOKENS,
     sessionId: agent.session.id,
     purpose: "compaction",
     signal,
@@ -56,10 +86,11 @@ export async function generateStructuredWithHost(
     throw new LlmError(finish.failure.message, finish.failure.code);
   }
   if (finish.kind === "max-tokens") {
-    throw new Error("structured Context Guardian extraction reached the token cap");
+    throw new Error(`structured Context Guardian extraction reached the ${STRUCTURED_MAX_TOKENS}-token cap`);
   }
 
   const text = textFromBlocks(assembler.blocks());
-  if (text.length === 0) throw new Error("DeepSeek Harness returned no structured extraction text");
+  debug(`host_response finish=${finish.kind} textChars=${text.length} reasoningChars=${assembler.blocks().filter((block) => block.type === "reasoning").reduce((total, block) => total + (block.text?.length ?? 0), 0)}`);
+  if (text.length === 0) throw new Error("DeepSeek Harness returned no visible structured extraction text");
   return extractJson(text);
 }

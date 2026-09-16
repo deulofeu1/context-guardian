@@ -27,11 +27,11 @@ dsh plugin --profile web add context-guardian-deepseek-harness
 
 The adapter and Python core share a versioned bridge contract and must stay on
 the same `0.3.x` release line. Pin both sides when reproducing a published setup;
-for example, the `0.3.3` pair is:
+for example, the `0.3.4` pair is:
 
 ```bash
-python3 -m pip install "context-guardian-core==0.3.3"
-dsh plugin --profile web add context-guardian-deepseek-harness@0.3.3
+python3 -m pip install "context-guardian-core==0.3.4"
+dsh plugin --profile web add context-guardian-deepseek-harness@0.3.4
 ```
 
 If an older core does not recognize an operation used by the adapter, the
@@ -110,7 +110,9 @@ dsh --profile web
 ```
 
 Review topics appear through Harness's user-question UI. In headless compositions
-without an answerer, high-risk topics are kept and low-risk topics accept the Preview.
+without an answerer, the adapter reports that Review UI is unavailable and accepts the
+successful native Preview. For an explicitly configured no-UI run, set
+`CONTEXT_GUARDIAN_NO_UI=1`; unresolved topics then use their conservative recommendations.
 
 For a repeatable end-to-end UI test that does not require a long real conversation:
 

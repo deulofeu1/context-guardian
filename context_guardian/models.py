@@ -253,6 +253,17 @@ class ReviewQuestion(BaseModel):
     evidence_snippets: list[str] = Field(default_factory=list, max_length=3)
 
 
+class AuditCoverage(BaseModel):
+    """Request-local coverage facts for a bounded host-model audit."""
+
+    total_source_messages: int = Field(default=0, ge=0)
+    attempted_source_messages: int = Field(default=0, ge=0)
+    covered_source_messages: int = Field(default=0, ge=0)
+    failed_chunks: int = Field(default=0, ge=0)
+    chunks: int = Field(default=0, ge=0)
+    complete: bool = True
+
+
 class ReviewPlan(BaseModel):
     """Preview audit result and the bounded review surface for host adapters."""
 
@@ -267,6 +278,18 @@ class ReviewPlan(BaseModel):
     accepted_omissions: list[str] = Field(default_factory=list, max_length=20)
     review_questions: list[ReviewQuestion] = Field(default_factory=list, max_length=3)
     diagnostics: list[str] = Field(default_factory=list, max_length=5)
+    audit_status: Literal[
+        "success",
+        "no_issues",
+        "budget_exhausted",
+        "source_rejected",
+        "model_failed",
+        "rules_fallback",
+        "incomplete",
+    ] = "success"
+    degraded: bool = False
+    degradation_reason: str | None = None
+    coverage: AuditCoverage = Field(default_factory=AuditCoverage)
     # Kept for compatibility with the 0.1 topic planner. Maintained adapters use
     # audit_topics/review_questions instead.
     review_topics: list[ReviewTopic] = Field(default_factory=list, max_length=3)
@@ -319,6 +342,8 @@ class InspectionResult(BaseModel):
     review_plan: ReviewPlan = Field(default_factory=ReviewPlan)
     mode: Literal["rules", "provider"] = "rules"
     policy_version: str = "1"
+    degraded: bool = False
+    diagnostics: list[str] = Field(default_factory=list, max_length=5)
 
     @classmethod
     def from_candidates(
@@ -328,6 +353,8 @@ class InspectionResult(BaseModel):
         mode: Literal["rules", "provider"],
         policy_version: str,
         review_plan: ReviewPlan | None = None,
+        degraded: bool = False,
+        diagnostics: list[str] | None = None,
     ) -> InspectionResult:
         return cls(
             candidates=candidates,
@@ -337,6 +364,8 @@ class InspectionResult(BaseModel):
             review_plan=review_plan or ReviewPlan(),
             mode=mode,
             policy_version=policy_version,
+            degraded=degraded,
+            diagnostics=diagnostics or [],
         )
 
 

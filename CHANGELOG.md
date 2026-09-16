@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.4 - 2026-09-16 (Issue #16 host-audit reliability)
+
+- Disabled host-model reasoning when the provider advertises an explicit off mode,
+  otherwise selected the lowest advertised effort without inheriting the main session.
+- Increased structured extraction headroom, parsed visible text only, and reported
+  empty, truncated, invalid, and schema-invalid provider responses clearly.
+- Added request-local audit coverage, stable cross-chunk finding IDs, importance-first
+  bounded selection, partial-chunk preservation, and explicit degraded/fallback status.
+- Made bridge cancellation and timeouts abort both the host call and Python child;
+  missing DSH Review UI is now diagnosed instead of silently claiming completion.
+
 ## 0.3.3 - 2026-09-16 (Host-provider Review reachability)
 
 - Separated verbatim source evidence from provider-authored localized display

@@ -29,9 +29,17 @@ function fakeContext() {
   return {
     calls,
     llm: {
+      resolveModelInfo() {
+        return { reasoning: { efforts: [{ id: "off", name: "Off" }, { id: "high", name: "High" }] } };
+      },
       stream(options) {
         calls.push(options);
         return (async function* () {
+          yield {
+            type: "block-end",
+            index: 1,
+            block: { type: "reasoning", text: "hidden reasoning that must not be parsed" },
+          };
           yield {
             type: "block-end",
             index: 0,
@@ -279,6 +287,8 @@ test("DeepSeek bridge performs host-provider inspection and local guidance", { s
     assert.equal(inspection.candidates[0].id, "model_goal");
     assert.equal(ctx.calls[0].provider, "deepseek-official");
     assert.equal(ctx.calls[0].model, "deepseek-v4-flash");
+    assert.equal(ctx.calls[0].reasoningEffort, "off");
+    assert.equal(ctx.calls[0].maxTokens, 8192);
 
     const guidance = await bridge.guidance(ctx, agent, inspection.candidates, [
       { candidate_id: "model_goal", action: "keep" },

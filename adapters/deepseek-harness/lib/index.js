@@ -63,6 +63,7 @@ export function reviewQuestionsForUi(plan) {
 export async function answerReviewQuestions(ctx, agent, plan, signal) {
     if (plan.review_questions.length === 0)
         return [];
+    const explicitNoUi = process.env.CONTEXT_GUARDIAN_NO_UI === "1";
     // `Context.get()` deliberately bypasses a plugin's injected dependency map.
     // Compaction is an isolated Cordis plugin, so read the injected property
     // instead; otherwise the Web answerer is present in the host but invisible
@@ -72,11 +73,17 @@ export async function answerReviewQuestions(ctx, agent, plan, signal) {
         interaction = ctx.userQuestions;
     }
     catch (error) {
-        debug(ctx, `userQuestions unavailable; policy fallback ${errorCode(error) ?? "missing"}`);
-        return answersForNoUi(plan);
+        debug(ctx, `Review UI unavailable: cannot access live userQuestions (${errorCode(error) ?? "missing"})`);
+        if (explicitNoUi)
+            return answersForNoUi(plan);
+        throw Object.assign(new Error("Context Guardian Review UI unavailable: live userQuestions is not accessible"), { code: "UI_UNAVAILABLE" });
     }
-    if (interaction === undefined)
-        return answersForNoUi(plan);
+    if (interaction === undefined) {
+        debug(ctx, "Review UI unavailable: live userQuestions capability is missing from the isolated compaction scope");
+        if (explicitNoUi)
+            return answersForNoUi(plan);
+        throw Object.assign(new Error("Context Guardian Review UI unavailable: live userQuestions capability is missing"), { code: "UI_UNAVAILABLE" });
+    }
     try {
         const answer = await interaction.ask({
             questions: reviewQuestionsForUi(plan),
@@ -102,8 +109,8 @@ export async function answerReviewQuestions(ctx, agent, plan, signal) {
     }
     catch (error) {
         const code = errorCode(error);
-        debug(ctx, `userQuestions unavailable; policy fallback ${code ?? "unknown"}`);
-        if (code === "NO_PROVIDER")
+        debug(ctx, `Review UI request failed: ${code ?? "unknown"}`);
+        if (explicitNoUi && code === "NO_PROVIDER")
             return answersForNoUi(plan);
         throw error;
     }

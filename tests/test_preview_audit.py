@@ -313,3 +313,63 @@ def test_provider_audit_sanitizes_execution_noise_from_review_surface():
     )
     assert plan.review_questions == []
     assert plan.auto_corrections == []
+
+
+class PartiallyFailingAuditProvider(ChunkAuditProvider):
+    def generate_structured(self, prompt: str, schema: type[ReviewPlan]) -> ReviewPlan:
+        if self.calls + 1 == 2:
+            self.calls += 1
+            raise RuntimeError("simulated host timeout")
+        return super().generate_structured(prompt, schema)
+
+
+def test_provider_chunk_failure_preserves_successes_and_reports_coverage():
+    provider = PartiallyFailingAuditProvider()
+    messages = [
+        {"id": f"chunk-{index}", "role": "user", "content": f"State {index}: " + ("important context " * 500)}
+        for index in range(10)
+    ]
+    plan = ContextGuardian(provider=provider).audit_preview(messages, preview="native preview")
+    assert provider.calls > 2
+    assert plan.findings
+    assert plan.audit_status == "incomplete"
+    assert plan.degraded is True
+    assert plan.coverage.failed_chunks == 1
+    assert plan.coverage.complete is False
+    assert any("chunk failed" in diagnostic.lower() for diagnostic in plan.diagnostics)
+
+
+def test_oversized_single_message_is_reported_as_incomplete_not_silently_dropped():
+    provider = ChunkAuditProvider()
+    message = {"id": "huge", "role": "user", "content": "The goal is durable. " + ("x" * 100_000)}
+    plan = ContextGuardian(provider=provider).audit_preview([message], preview="native preview")
+    assert provider.calls == 1
+    assert plan.coverage.total_source_messages == 1
+    assert plan.coverage.covered_source_messages == 0
+    assert plan.coverage.complete is False
+    assert plan.audit_status == "incomplete"
+    assert plan.diagnostics
+
+
+def test_provider_source_rejection_is_distinguished_from_no_findings():
+    class RejectedAuditProvider:
+        def generate_structured(self, prompt: str, schema: type[ReviewPlan]) -> ReviewPlan:
+            return ReviewPlan(findings=[AuditFinding(
+                id="provider-finding",
+                issue_type="missing",
+                category=CandidateCategory.TODO,
+                summary="invented",
+                why_it_matters="invented",
+                suggested_correction="invented",
+                importance=0.8,
+                confidence=0.8,
+                source_message_ids=["missing-source"],
+                evidence_snippets=["not in source"],
+            )])
+
+    plan = ContextGuardian(provider=RejectedAuditProvider()).audit_preview(
+        fixture_messages(), preview="The project goal is implemented."
+    )
+    assert plan.audit_status == "source_rejected"
+    assert plan.degraded is False
+    assert any("evidence" in diagnostic for diagnostic in plan.diagnostics)
