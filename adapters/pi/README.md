@@ -45,9 +45,11 @@ fallback. This is
 experimental behavior and does not guarantee better summaries or agent performance.
 
 Provider audit output is untrusted: a finding must cite an eligible message from the
-current request, and every evidence snippet must match that source before it can become
-a Review topic or Reviewed Fact. Pi internal planning/compaction metadata, tool calls,
-paths, hashes, logs, and resolved mechanical errors are excluded from the review UI.
+current request, and every evidence snippet must match that source verbatim before it
+can become a Review topic or Reviewed Fact. Readable or translated provider text is
+display-only; the adapter shows the original evidence separately and persists only the
+validated source sentence. Pi internal planning/compaction metadata, tool calls, paths,
+hashes, logs, and resolved mechanical errors are excluded from the review UI.
 
 Set `CONTEXT_GUARDIAN_MAX_REVIEW_QUESTIONS=0..3` to control the hard review budget.
 Zero disables questions and resolves uncertain topics conservatively.

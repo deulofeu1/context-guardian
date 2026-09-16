@@ -198,6 +198,9 @@ class AuditFinding(BaseModel):
     issue_type: AuditIssueType
     category: CandidateCategory
     summary: str = Field(min_length=1)
+    # Provider-authored, readable UI text. It is never used as an authoritative
+    # correction; suggested_correction/evidence_snippets remain source-grounded.
+    display_summary: str | None = Field(default=None, max_length=500)
     why_it_matters: str = Field(min_length=1)
     suggested_correction: str = Field(min_length=1)
     importance: float = Field(ge=0, le=1)
@@ -222,6 +225,7 @@ class AuditTopic(BaseModel):
     disposition: AuditDisposition
     recommended_action: Literal["keep", "drop", "correct", "accept_preview"] = "accept_preview"
     suggested_correction: str | None = None
+    evidence_snippets: list[str] = Field(default_factory=list, max_length=3)
 
 
 class ReviewOption(BaseModel):
@@ -245,6 +249,8 @@ class ReviewQuestion(BaseModel):
     why_it_matters: str = Field(min_length=1)
     recommendation: Literal["keep", "drop"]
     options: list[ReviewOption] = Field(min_length=2, max_length=2)
+    # Exact source excerpts are shown separately from the localized question.
+    evidence_snippets: list[str] = Field(default_factory=list, max_length=3)
 
 
 class ReviewPlan(BaseModel):
@@ -260,6 +266,7 @@ class ReviewPlan(BaseModel):
     auto_corrections: list[str] = Field(default_factory=list, max_length=20)
     accepted_omissions: list[str] = Field(default_factory=list, max_length=20)
     review_questions: list[ReviewQuestion] = Field(default_factory=list, max_length=3)
+    diagnostics: list[str] = Field(default_factory=list, max_length=5)
     # Kept for compatibility with the 0.1 topic planner. Maintained adapters use
     # audit_topics/review_questions instead.
     review_topics: list[ReviewTopic] = Field(default_factory=list, max_length=3)

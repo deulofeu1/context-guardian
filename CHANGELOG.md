@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.3 - 2026-09-16 (Host-provider Review reachability)
+
+- Separated verbatim source evidence from provider-authored localized display
+  summaries, so translated UI text no longer fails the provenance gate.
+- Kept Reviewed Facts strictly source-grounded while showing readable summaries
+  and separate source evidence in Pi and DeepSeek Harness review dialogs.
+- Added visible diagnostics when every provider finding is rejected, plus JSONL,
+  Pi UI, and DeepSeek Harness UI regression coverage proving Review questions
+  reach the host question controls.
+
 ## 0.3.2 - 2026-09-15 (Host audit review and fact rendering)
 
 - Preserved source-grounded Host Provider review requests so uncertain topics can

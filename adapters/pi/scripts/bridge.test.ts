@@ -8,7 +8,7 @@ import {
   pythonCommand,
   pythonEnvironment,
 } from "../src/bridge.ts";
-import { answersForNoUi } from "../extensions/context-guardian.ts";
+import { answerReviewQuestions, answersForNoUi, questionBody } from "../extensions/context-guardian.ts";
 import { appendReviewedFacts } from "../src/reviewed-facts.ts";
 
 const repositoryRoot = resolve(new URL("../../../", import.meta.url).pathname);
@@ -67,6 +67,56 @@ test("Pi no-UI resolution follows topic recommendations", () => {
     review_questions: [{ id: "q1", topic_id: "t1", recommendation: "keep" }],
   } as any;
   assert.deepEqual(answersForNoUi(plan), [{ question_id: "q1", topic_id: "t1", action: "keep" }]);
+});
+
+test("Pi review UI separates localized summary from verbatim source evidence", () => {
+  const body = questionBody({
+    id: "q1",
+    topic_id: "t1",
+    title: "Optional adapter",
+    question: "Should the compaction preserve this topic?",
+    context: "该适配器应保持可选。",
+    why_it_matters: "这会影响后续部署。",
+    recommendation: "keep",
+    options: [
+      { id: "keep", label: "保留", description: "保留关键结论。" },
+      { id: "drop", label: "丢弃", description: "接受原生预览。" },
+    ],
+    evidence_snippets: ["The adapter should remain optional for future deployments."],
+  });
+  assert.match(body, /该适配器应保持可选/);
+  assert.match(body, /来源证据（原文，仅用于核对）/);
+  assert.match(body, /The adapter should remain optional/);
+});
+
+test("Pi review path invokes the UI confirmation when a question exists", async () => {
+  const calls: Array<{ title: string; body: string }> = [];
+  const plan = {
+    review_questions: [{
+      id: "q1",
+      topic_id: "t1",
+      title: "Optional adapter",
+      question: "Should this be kept?",
+      context: "The adapter is optional.",
+      why_it_matters: "It may affect later deployments.",
+      recommendation: "drop",
+      options: [
+        { id: "keep", label: "Keep", description: "Keep the conclusion." },
+        { id: "drop", label: "Drop", description: "Accept the preview." },
+      ],
+    }],
+  } as any;
+  const answers = await answerReviewQuestions(
+    { hasUI: true, ui: { confirm: async (title: string, body: string) => {
+      calls.push({ title, body });
+      return true;
+    } } } as any,
+    plan,
+    new AbortController().signal,
+  );
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].body, /Should this be kept/);
+  assert.deepEqual(answers, [{ question_id: "q1", topic_id: "t1", action: "keep" }]);
 });
 
 test("Pi appends reviewed facts without a second native summary", () => {

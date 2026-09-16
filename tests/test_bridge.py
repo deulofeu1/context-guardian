@@ -1,7 +1,9 @@
 import io
 import json
+from unittest.mock import patch
 
 from context_guardian.bridge import run_protocol
+from context_guardian.models import AuditTopic, ReviewOption, ReviewPlan, ReviewQuestion
 
 
 def test_bridge_handles_rules_inspection():
@@ -87,6 +89,89 @@ def test_bridge_audits_native_preview_with_bounded_questions():
     assert response["ok"] is True
     assert len(response["result"]["review_questions"]) <= 3
     assert "auth.py" in " ".join(response["result"]["auto_corrections"])
+
+
+def test_bridge_host_provider_reaches_review_with_mixed_language_evidence():
+    provider_plan = ReviewPlan(
+        language="zh-CN",
+        findings=[{
+            "id": "finding-side",
+            "issue_type": "ambiguous",
+            "category": "important_fact",
+            "summary": "该适配器应保持可选。",
+            "display_summary": "该适配器应保持可选。",
+            "why_it_matters": "这会影响后续部署。",
+            "suggested_correction": "untrusted provider correction",
+            "importance": 0.6,
+            "confidence": 0.6,
+            "source_message_ids": ["source"],
+            "evidence_snippets": ["The adapter should remain optional for future deployments."],
+        }],
+        audit_topics=[AuditTopic(
+            id="provider-topic",
+            title="Optional adapter",
+            summary="该适配器应保持可选。",
+            finding_ids=["finding-side"],
+            impact=0.6,
+            confidence=0.6,
+            relevance_to_main_goal=0.4,
+            requires_user_preference=True,
+            disposition="ask_user",
+            recommended_action="keep",
+            suggested_correction="untrusted provider correction",
+        )],
+        review_questions=[ReviewQuestion(
+            id="provider-question",
+            topic_id="provider-topic",
+            title="Optional adapter",
+            question="Should this be kept?",
+            context="The provider requested a decision.",
+            why_it_matters="It may affect future deployments.",
+            recommendation="keep",
+            options=[
+                ReviewOption(id="keep", label="Keep", description="Keep the conclusion."),
+                ReviewOption(id="drop", label="Drop", description="Accept the preview."),
+            ],
+        )],
+    )
+    request = {
+        "protocol_version": 1,
+        "type": "request",
+        "request_id": "request-host-audit",
+        "operation": "audit_preview",
+        "provider": "host",
+        "language": "zh-CN",
+        "preview": "The native preview omitted the optional adapter decision.",
+        "messages": [{
+            "id": "source",
+            "role": "user",
+            "content": "The adapter should remain optional for future deployments.",
+        }],
+        "max_review_questions": 3,
+    }
+    provider_response = {
+        "protocol_version": 1,
+        "type": "provider_response",
+        "request_id": "provider-request",
+        "ok": True,
+        "data": provider_plan.model_dump(mode="json"),
+    }
+    input_stream = io.StringIO(
+        json.dumps(request) + "\n" + json.dumps(provider_response) + "\n"
+    )
+    output_stream = io.StringIO()
+
+    with patch("context_guardian.providers.uuid.uuid4", return_value="provider-request"):
+        assert run_protocol(input_stream, output_stream) == 0
+
+    response = json.loads(output_stream.getvalue().splitlines()[-1])
+    assert response["ok"] is True
+    result = response["result"]
+    assert len(result["review_questions"]) == 1
+    assert "该适配器应保持可选" in result["review_questions"][0]["context"]
+    assert result["review_questions"][0]["evidence_snippets"] == [
+        "The adapter should remain optional for future deployments."
+    ]
 
 
 def test_bridge_revision_guidance_accepts_topic_answer():

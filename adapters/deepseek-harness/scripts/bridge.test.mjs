@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 import { GuardianBridge, normalizeDeepSeekMessages, preferredLanguage, pythonCommand, pythonEnvironment } from "../lib/bridge.js";
-import { ContextGuardianCompactionEngine, answersForNoUi, uiMessageWithError } from "../lib/index.js";
+import { answerReviewQuestions, ContextGuardianCompactionEngine, answersForNoUi, reviewQuestionsForUi, uiMessageWithError } from "../lib/index.js";
 import { appendReviewedFacts } from "../lib/reviewed-facts.js";
 
 const repositoryRoot = resolve(new URL("../../../", import.meta.url).pathname);
@@ -129,6 +129,68 @@ test("DeepSeek no-UI resolution follows topic recommendations", () => {
     review_questions: [{ id: "q1", topic_id: "t1", recommendation: "keep" }],
   };
   assert.deepEqual(answersForNoUi(plan), [{ question_id: "q1", topic_id: "t1", action: "keep" }]);
+});
+
+test("DeepSeek review UI separates localized summary from verbatim source evidence", () => {
+  const questions = reviewQuestionsForUi({
+    language: "zh-CN",
+    overview: "本次压缩需要判断一个主题。",
+    auto_preserve_summary: "",
+    findings: [],
+    audit_topics: [],
+    auto_corrections: [],
+    accepted_omissions: [],
+    diagnostics: [],
+    review_questions: [{
+      id: "q1",
+      topic_id: "t1",
+      title: "可选适配器",
+      question: "压缩后是否需要特别保留这个主题？",
+      context: "该适配器应保持可选。",
+      why_it_matters: "这会影响后续部署。",
+      recommendation: "keep",
+      options: [
+        { id: "keep", label: "保留", description: "保留关键结论。" },
+        { id: "drop", label: "丢弃", description: "接受原生预览。" },
+      ],
+      evidence_snippets: ["The adapter should remain optional for future deployments."],
+    }],
+  });
+  assert.equal(questions.length, 1);
+  assert.match(questions[0].detail, /该适配器应保持可选/);
+  assert.match(questions[0].detail, /Source evidence \(verbatim, for verification\)/);
+  assert.match(questions[0].detail, /The adapter should remain optional/);
+});
+
+test("DeepSeek review path invokes the host question capability when a question exists", async () => {
+  let request;
+  const plan = {
+    review_questions: [{
+      id: "q1",
+      topic_id: "t1",
+      title: "Optional adapter",
+      question: "Should this be kept?",
+      context: "The adapter is optional.",
+      why_it_matters: "It may affect later deployments.",
+      recommendation: "drop",
+      options: [
+        { id: "keep", label: "Keep", description: "Keep the conclusion." },
+        { id: "drop", label: "Drop", description: "Accept the preview." },
+      ],
+    }],
+  };
+  const answers = await answerReviewQuestions(
+    { userQuestions: { ask: async (value) => {
+      request = value;
+      return { answers: [{ id: "q1", selected: ["Keep"] }] };
+    } } },
+    {},
+    plan,
+    new AbortController().signal,
+  );
+  assert.equal(request.questions.length, 1);
+  assert.match(request.questions[0].question, /Should this be kept/);
+  assert.deepEqual(answers, [{ question_id: "q1", topic_id: "t1", action: "keep" }]);
 });
 
 test("DeepSeek appends reviewed facts to summary without a second native call", () => {

@@ -44,7 +44,7 @@ from .reviewed_facts import (
 )
 from .verification import verify_conversation, verify_file
 
-__version__ = "0.3.2"
+__version__ = "0.3.3"
 
 __all__ = [
     "CandidateCategory",

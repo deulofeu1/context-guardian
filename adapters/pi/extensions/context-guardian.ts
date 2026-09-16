@@ -50,9 +50,12 @@ function debug(message: string): void {
   }
 }
 
-function questionBody(question: ReviewQuestion): string {
+export function questionBody(question: ReviewQuestion): string {
   const options = question.options.map((option) => `${option.label}: ${option.description}`).join("\n");
-  return `${question.question}\n\n${question.context}\n\n${question.why_it_matters}\n\n${options}`;
+  const evidence = question.evidence_snippets?.length
+    ? `\n\n来源证据（原文，仅用于核对）：\n${question.evidence_snippets.join("\n")}`
+    : "";
+  return `${question.question}\n\n${question.context}\n\n${question.why_it_matters}${evidence}\n\n${options}`;
 }
 
 export function answersForNoUi(plan: ReviewPlan): Array<{
@@ -67,7 +70,7 @@ export function answersForNoUi(plan: ReviewPlan): Array<{
   }));
 }
 
-async function answerReviewQuestions(
+export async function answerReviewQuestions(
   ctx: ExtensionContext,
   plan: ReviewPlan,
   signal: AbortSignal,
@@ -150,6 +153,9 @@ async function handleBeforeCompact(event: SessionBeforeCompactEvent, ctx: Extens
 
     if (ctx.hasUI) {
       ctx.ui.notify(auditNotice(plan), "info");
+      if (plan.diagnostics?.length) {
+        ctx.ui.notify(plan.diagnostics.join("\n"), "warning");
+      }
     }
 
     let answers;
