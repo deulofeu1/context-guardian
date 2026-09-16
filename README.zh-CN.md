@@ -78,8 +78,8 @@ DeepSeek Harness 适配器与 Python 核心共用带版本的 bridge 合同，�
 请将核心固定为适配器对应的已发布版本，例如：
 
 ```bash
-python3 -m pip install "context-guardian-core==0.3.4"
-dsh plugin --profile web add context-guardian-deepseek-harness@0.3.4
+python3 -m pip install "context-guardian-core==0.3.5"
+dsh plugin --profile web add context-guardian-deepseek-harness@0.3.5
 ```
 
 如果 bridge 操作不受支持，适配器现在会把底层错误写入 warning，能够直接识别核心与
@@ -239,6 +239,21 @@ npm run dsh-fixture-smoke
 
 其中 `pi-smoke` 是适合 CI 的快速无模型检查；`pi-fixture-smoke` 和
 `dsh-fixture-smoke` 是验证 Preview、审计、主题选择和最终原生 compaction 的重点测试。
+
+默认的 `dsh-fixture-smoke` 使用 replay model，不需要 API Key，适合确定性 CI 和快速
+验证。要验证真实 DeepSeek Harness Web、真实模型和手动 Review，可以运行 live fixture：
+
+```bash
+CONTEXT_GUARDIAN_DSH_LIVE=1 \
+CONTEXT_GUARDIAN_FIXTURE_PACKAGE=context-guardian-deepseek-harness@0.3.5 \
+npm run dsh-fixture-smoke
+```
+
+它复用 DSH 已配置的 Provider 和认证信息，凭证不会传入 Python；启动 Web 后选择预置会话，
+输入 `/compact`，确认出现不超过 3 个主题问题，手动选择 Keep 或 Drop，并确认原生压缩完成。
+live fixture 会额外放入一个刻意未决、且与未来安全设计有关的主题，以便真实宿主路径有机会
+弹窗；如果模型已经在 Preview 中保留它，则不弹窗也是正确结果。replay fixture 负责确定性，
+live fixture 负责真实宿主和真实模型验证。
 
 ## 项目边界
 

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Context } from "@deepseek-ai/cordis";
@@ -27,8 +27,13 @@ const pythonCandidates = [
 ].filter(Boolean);
 const python = pythonCandidates.find((candidate) => existsSync(candidate));
 const dsh = process.env.CONTEXT_GUARDIAN_DSH || "dsh";
+const liveMode = process.env.CONTEXT_GUARDIAN_DSH_LIVE === "1";
 const replayProvider = "context-guardian-replay";
 const replayModel = "guardian-fixture";
+const hostProvider = process.env.CONTEXT_GUARDIAN_DSH_PROVIDER || "deepseek-official";
+const hostModel = process.env.CONTEXT_GUARDIAN_DSH_MODEL || "deepseek-v4-flash";
+const fixtureProvider = liveMode ? hostProvider : replayProvider;
+const fixtureModel = liveMode ? hostModel : replayModel;
 
 function quoteYaml(value) {
   return `'${String(value).replaceAll("'", "''")}'`;
@@ -88,7 +93,7 @@ function buildFixtureEvents() {
   }), { surfaceOp: "append" });
   push("request/header", {
     header: {
-      config: { provider: replayProvider, model: replayModel },
+      config: { provider: fixtureProvider, model: fixtureModel },
     },
     reason: "initial",
   });
@@ -99,6 +104,7 @@ function buildFixtureEvents() {
     "决定：PostgreSQL 是最终数据库方案。",
     "SQLite 曾被考虑，但因为并发写入导致锁问题而放弃。",
     "TODO：auth.py 仍未完成，需要实现 OAuth 回调。",
+    "未决方向：未来是否引入 Redis 作为 session cache 尚未决定；这不是当前数据库方案，是否在压缩后保留由用户判断。",
     "当前状态：provider abstraction 已接入，但 callback 路径还未完成。",
     "用户偏好：保持补丁小巧，不要新增服务。",
     "迁移测试覆盖现有 public API，必须继续通过。",
@@ -137,7 +143,7 @@ function buildFixtureEvents() {
       : `已记录项目状态：${userText}`;
     const assistant = createAssistantMessage({
       content: [{ type: "text", text: assistantText }],
-      source: { provider: replayProvider, model: replayModel },
+      source: { provider: fixtureProvider, model: fixtureModel },
     });
     push("assistant/message", {
       turn: 1,
@@ -147,6 +153,35 @@ function buildFixtureEvents() {
       stream: streamForText(assistantText, time),
     }, { surfaceOp: "append" });
 
+    push("step/end", { turn: 1, step });
+  }
+
+  // Live mode adds one deliberately unresolved, future-relevant preference
+  // only once and at the end of the history. Native compaction should be free
+  // to omit it; the host audit must then either ground it as a Review topic or
+  // explain why it is a safe omission. Replay remains deterministic and does
+  // not depend on this model-sensitive prompt.
+  if (liveMode) {
+    const step = allTurns.length + 1;
+    push("step/start", { turn: 1, step });
+    const unresolvedText = "未决安全方向：OAuth callback 的 replay protection 是否需要单独引入 nonce ledger 尚未决定；这不是当前实现的一部分，但可能影响后续安全设计，压缩后是否保留由用户判断。";
+    const unresolved = createUserMessage({
+      content: [{ type: "text", text: unresolvedText }],
+      source: { kind: "user" },
+    });
+    push("user/message", unresolved, { surfaceOp: "append" });
+    const responseText = `已记录待确认项：${unresolvedText}`;
+    const response = createAssistantMessage({
+      content: [{ type: "text", text: responseText }],
+      source: { provider: fixtureProvider, model: fixtureModel },
+    });
+    push("assistant/message", {
+      turn: 1,
+      step,
+      message: response,
+      usage: { inputTokens: 700, outputTokens: 60 },
+      stream: streamForText(responseText, time),
+    }, { surfaceOp: "append" });
     push("step/end", { turn: 1, step });
   }
 
@@ -193,17 +228,23 @@ async function main() {
   }
 
   const tempDir = await mkdtemp(resolve(tmpdir(), "context-guardian-dsh-fixture-") + "-");
-  const dshHome = resolve(tempDir, ".dsh");
+  // Replay uses an isolated DSH home. Live mode uses the existing DSH home so
+  // the active Harness credential reference remains available.
+  const dshHome = liveMode
+    ? (process.env.DSH_HOME || resolve(homedir(), ".dsh"))
+    : resolve(tempDir, ".dsh");
   // Use a distinctive directory name because DSH falls back to the working
   // directory basename in some Web session-list views, even when the seeded
   // session/title event is available.
   const cwd = resolve(tempDir, "context-guardian-fixture-long");
   const sessionsRoot = resolve(tempDir, "sessions");
-  const profile = "context-guardian-fixture";
+  const profile = liveMode
+    ? `context-guardian-live-${randomUUID().slice(0, 8)}`
+    : "context-guardian-fixture";
   const fixturePath = resolve(tempDir, "replay-session.jsonl");
   const overridePath = resolve(tempDir, "replay.override.json");
   const patchPath = resolve(tempDir, "smoke.patch.yml");
-  const agentPresetDir = resolve(dshHome, ".agent-presets", "context-guardian-fixture");
+  const agentPresetDir = resolve(dshHome, ".agent-presets", liveMode ? profile : "context-guardian-fixture");
   await mkdir(cwd, { recursive: true });
   await mkdir(agentPresetDir, { recursive: true });
   await writeFile(resolve(agentPresetDir, "preset.yml"), [
@@ -429,32 +470,37 @@ async function main() {
       ],
     },
   ], null, 2) + "\n", "utf8");
-  await writeFile(patchPath, [
+  const patchLines = [
     "- id: session-persistence-jsonl",
     "  config:",
     `    root: ${quoteYaml(sessionsRoot)}`,
     "    compression: none",
     "- id: agent-default-model",
     "  config:",
-    `    provider: ${quoteYaml(replayProvider)}`,
-    `    model: ${quoteYaml(replayModel)}`,
-    "- id: llm-deepseek",
-    "  disabled: true",
+    `    provider: ${quoteYaml(fixtureProvider)}`,
+    `    model: ${quoteYaml(fixtureModel)}`,
     "- id: agent-presets",
     "  config:",
-    "    default: context-guardian-fixture",
-    "- insert:",
-    "    - id: llm-replay",
-    "      name: '@deepseek-ai/dsh-llm-replay'",
-    "      config:",
-    `        file: ${quoteYaml(fixturePath)}`,
-    `        overrideFile: ${quoteYaml(overridePath)}`,
-    "        providers:",
-    `          - id: ${replayProvider}`,
-    "            models:",
-    `              - id: ${replayModel}`,
-    "                contextWindow: 8192",
-  ].join("\n") + "\n", "utf8");
+    `    default: ${profile}`,
+  ];
+  if (!liveMode) {
+    patchLines.push(
+      "- id: llm-deepseek",
+      "  disabled: true",
+      "- insert:",
+      "    - id: llm-replay",
+      "      name: '@deepseek-ai/dsh-llm-replay'",
+      "      config:",
+      `        file: ${quoteYaml(fixturePath)}`,
+      `        overrideFile: ${quoteYaml(overridePath)}`,
+      "        providers:",
+      `          - id: ${replayProvider}`,
+      "            models:",
+      `              - id: ${replayModel}`,
+      "                contextWindow: 8192",
+    );
+  }
+  await writeFile(patchPath, patchLines.join("\n") + "\n", "utf8");
 
   const environment = {
     ...process.env,
@@ -483,15 +529,19 @@ async function main() {
       });
     });
     const packageTarball = resolve(tempDir, packOutput);
-    await run(dsh, ["plugin", "--profile", profile, "add", packageTarball], { env: environment });
-    await run(dsh, ["plugin", "--profile", profile, "add", "@deepseek-ai/dsh-llm-replay@0.1.5-rc.2"], { env: environment });
+    const packageSpec = process.env.CONTEXT_GUARDIAN_FIXTURE_PACKAGE || packageTarball;
+    await run(dsh, ["plugin", "--profile", profile, "add", packageSpec], { env: environment });
+    if (!liveMode) {
+      await run(dsh, ["plugin", "--profile", profile, "add", "@deepseek-ai/dsh-llm-replay@0.1.5-rc.2"], { env: environment });
+    }
 
     console.log("");
-    console.log("DeepSeek Harness Context Guardian fixture is ready.");
+    console.log(`DeepSeek Harness Context Guardian ${liveMode ? "live" : "replay"} fixture is ready.`);
     console.log("Open the printed Web URL, select 'Context Guardian 预置长对话（请先选择）' (or the context-guardian-fixture-long session), enter /compact, and answer at most three topic questions.");
     console.log("Expected automatic corrections: SQLite failure reason and the incomplete auth.py TODO.");
     console.log("Expected topic question: npm fundamentals side discussion; execution noise stays out of the UI.");
     console.log("Expected final result: one native Preview plus a Reviewed Facts block containing the selected corrections and no raw logs.");
+    if (liveMode) console.log(`Live route: ${hostProvider}/${hostModel}; credentials stay inside DeepSeek Harness.`);
     console.log("Exit the Web process with Ctrl-C when finished.");
     console.log("");
 
@@ -516,6 +566,10 @@ async function main() {
       await rm(tempDir, { recursive: true, force: true });
     } else {
       console.log(`Fixture kept at ${tempDir}`);
+    }
+    if (liveMode) {
+      await rm(resolve(dshHome, "profiles", profile), { recursive: true, force: true });
+      await rm(agentPresetDir, { recursive: true, force: true });
     }
   }
 }

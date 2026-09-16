@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.5 - 2026-09-16 (Live host fixture verification)
+
+- Added a real DeepSeek Harness live fixture mode that reuses the host's configured
+  provider and authentication without passing credentials to Python.
+- Added a deliberately unresolved live-fixture topic so the published adapter can be
+  verified through the actual Harness Web review UI, including a manual Keep/Drop choice.
+- Kept the default replay fixture deterministic and API-key-free for CI and quick checks.
+- Documented the distinction between replay verification and real-model UI verification.
+
 ## 0.3.4 - 2026-09-16 (Issue #16 host-audit reliability)
 
 - Disabled host-model reasoning when the provider advertises an explicit off mode,

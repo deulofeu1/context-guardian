@@ -84,8 +84,8 @@ leaving an older Python core installed. For a reproducible installation, pin the
 core to the adapter's published version, for example:
 
 ```bash
-python3 -m pip install "context-guardian-core==0.3.4"
-dsh plugin --profile web add context-guardian-deepseek-harness@0.3.4
+python3 -m pip install "context-guardian-core==0.3.5"
+dsh plugin --profile web add context-guardian-deepseek-harness@0.3.5
 ```
 
 If a bridge operation is unsupported, the adapter now includes the underlying
@@ -310,6 +310,24 @@ Select the session named `Context Guardian 预置长对话（请先选择）`, t
 PostgreSQL decision, `auth.py` TODO, and SQLite rejection reason are appended to the
 native Preview while transient grep/npm output is discarded. No real API key is needed
 because the fixture uses a replay model.
+
+For a real-model Web UI check, use the live fixture instead. It reuses the provider
+and authentication already configured in DeepSeek Harness; the credential never
+enters the Python process:
+
+```bash
+CONTEXT_GUARDIAN_DSH_LIVE=1 \
+CONTEXT_GUARDIAN_FIXTURE_PACKAGE=context-guardian-deepseek-harness@0.3.5 \
+npm run dsh-fixture-smoke
+```
+
+The live fixture seeds the same long session, adds one deliberately unresolved
+future-relevant topic, and opens a real Harness Web session. Enter `/compact`, verify
+that a bounded topic-level Review question appears, choose Keep or Drop, and confirm
+that native compaction completes. The question can legitimately vary with the host
+model; if the model already retains the topic in its Preview, no question is correct.
+This is the important release check for the actual host path, while the replay fixture
+is the deterministic check for CI.
 
 Review text follows the dominant language of user-authored messages. Technical names
 such as `OAuth`, `npm`, and `public API` remain unchanged, while host status text such

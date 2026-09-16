@@ -30,11 +30,11 @@ dsh plugin --profile web add context-guardian-deepseek-harness
 ```
 
 适配器与 Python 核心共用带版本的 bridge 合同，必须保持在同一条 `0.3.x` 发布线上。
-复现已发布配置时请固定两边的版本；例如 `0.3.4` 配对安装如下：
+复现已发布配置时请固定两边的版本；例如 `0.3.5` 配对安装如下：
 
 ```bash
-python3 -m pip install "context-guardian-core==0.3.4"
-dsh plugin --profile web add context-guardian-deepseek-harness@0.3.4
+python3 -m pip install "context-guardian-core==0.3.5"
+dsh plugin --profile web add context-guardian-deepseek-harness@0.3.5
 ```
 
 如果旧核心不认识适配器使用的操作，适配器的 fail-open warning 会包含底层 bridge
@@ -125,6 +125,20 @@ Preview 缺少部分事实。打开 Harness UI 后，先选择名为
 最多显示 3 个主题问题；请手动选择 Keep 或 Drop，然后确认原生 Preview 及其
 确定性 Reviewed Facts 区块。它使用 replay model，不需要 DeepSeek API Key。结束临时 Web 进程时
 按 Ctrl-C。
+
+如果要验证真实 Harness 宿主、真实模型和真实 Review UI，可以运行 live fixture：
+
+```bash
+CONTEXT_GUARDIAN_DSH_LIVE=1 \
+CONTEXT_GUARDIAN_FIXTURE_PACKAGE=context-guardian-deepseek-harness@0.3.5 \
+npm run dsh-fixture-smoke
+```
+
+live 模式使用现有 DSH home 和 Provider 路由，认证信息留在 Harness 内，不会传给 Python。
+它会预置一个足够长的会话，并额外加入一个刻意未决、与未来安全设计有关的主题。打开 Web
+后输入 `/compact`，确认出现不超过 3 个主题问题，手动选择 Keep 或 Drop，并确认原生压缩
+完成。具体是否弹出问题取决于模型：如果原生 Preview 已经保留该主题，0 个问题也是正确
+结果。replay 模式用于确定性 CI，live 模式用于真实宿主/UI 验证。
 
 如果无头组合没有 answerer，适配器会明确报告 Review UI 不可用，并接受已经成功的
 原生 Preview。只有在明确配置无 UI 运行时才设置 `CONTEXT_GUARDIAN_NO_UI=1`；此时
