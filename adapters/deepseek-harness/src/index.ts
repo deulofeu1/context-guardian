@@ -68,12 +68,16 @@ export function answersForNoUi(plan: ReviewPlan): Array<{
   }));
 }
 
-function reviewQuestionsForUi(plan: ReviewPlan) {
+export function reviewQuestionsForUi(plan: ReviewPlan) {
   return plan.review_questions.slice(0, MAX_REVIEW_QUESTIONS).map((question) => ({
     id: question.id,
     header: question.title,
     question: question.question,
-    detail: `${plan.overview}\n\n${question.context}\n\n${question.why_it_matters}\n\n${question.options.map((option) => `${option.label}: ${option.description}`).join("\n")}`,
+    detail: `${plan.overview}\n\n${question.context}\n\n${question.why_it_matters}`
+      + (question.evidence_snippets?.length
+        ? `\n\nSource evidence (verbatim, for verification):\n${question.evidence_snippets.join("\n")}`
+        : "")
+      + `\n\n${question.options.map((option) => `${option.label}: ${option.description}`).join("\n")}`,
     options: question.options.map((option) => ({
       label: option.label,
       description: option.description,
@@ -81,7 +85,7 @@ function reviewQuestionsForUi(plan: ReviewPlan) {
   }));
 }
 
-async function answerReviewQuestions(
+export async function answerReviewQuestions(
   ctx: Context,
   agent: Agent,
   plan: ReviewPlan,
@@ -196,6 +200,9 @@ export class ContextGuardianCompactionEngine extends BasicCompactionEngine {
       return preview;
     }
     uiLanguage = plan.language;
+    if (plan.diagnostics?.length) {
+      this.ctx.logger.warn(plan.diagnostics.join("\n"));
+    }
 
     let answers;
     try {

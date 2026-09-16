@@ -8,7 +8,9 @@ or genuinely ambiguous topics for the host UI.
 from __future__ import annotations
 
 import hashlib
+import os
 import re
+import sys
 from collections import defaultdict
 from collections.abc import Iterable
 
@@ -390,6 +392,15 @@ def _grounded_source_fact(finding: AuditFinding, source_index: SourceIndex) -> s
     return ""
 
 
+def _display_summary(finding: AuditFinding, source_fact: str) -> str:
+    """Choose readable provider text without making it durable authority."""
+
+    candidate = _short(finding.display_summary or "", 500)
+    if candidate and not is_execution_noise(candidate):
+        return candidate
+    return source_fact
+
+
 def _topic_key(content: str, category: CandidateCategory) -> str:
     lower = content.casefold()
     if any(word in lower for word in ("npm", "pip", "python", "node", "package")):
@@ -455,11 +466,13 @@ class PreviewAuditor:
             )
             grounded_findings: list[AuditFinding] = []
             provider_review_finding_ids: set[str] = set()
+            raw_provider_findings = 0
             for item in inputs:
                 provider_plan = self.provider.generate_structured(
                     self._provider_prompt(item.text, selected_language, max_review_questions),
                     ReviewPlan,
                 )
+                raw_provider_findings += len(provider_plan.findings)
                 source_index = SourceIndex.from_messages(item.source_messages)
                 sanitized = self._sanitize_provider_findings(
                     provider_plan.findings,
@@ -481,10 +494,30 @@ class PreviewAuditor:
                     else finding
                     for finding in grounded_findings
                 ]
+            diagnostics: list[str] = []
+            if raw_provider_findings and not grounded_findings:
+                diagnostics.append(
+                    _localized(
+                        selected_language,
+                        f"宿主模型审计诊断：raw={raw_provider_findings} kept=0 reason=evidence_not_verbatim。"
+                        "没有一条结果通过逐字来源证据校验，因此未显示 Review 问题，也未追加未经验证的事实。",
+                        f"Host audit diagnostic: raw={raw_provider_findings} kept=0 "
+                        "reason=evidence_not_verbatim. No finding passed verbatim source-evidence "
+                        "validation, so no Review question or ungrounded fact was added.",
+                    )
+                )
+            if os.environ.get("CONTEXT_GUARDIAN_DEBUG") == "1":
+                print(
+                    "context guardian: "
+                    f"provider_findings_raw={raw_provider_findings} "
+                    f"provider_findings_grounded={len(grounded_findings)}",
+                    file=sys.stderr,
+                )
             return self._build_grounded_plan(
                 grounded_findings,
                 selected_language,
                 max_review_questions,
+                diagnostics=diagnostics,
             )
         return self._local_audit(
             normalized,
@@ -532,6 +565,7 @@ class PreviewAuditor:
             source_fact = _grounded_source_fact(finding, source_index)
             if not source_fact:
                 continue
+            display_summary = _display_summary(finding, source_fact)
             why = _localized(
                 language,
                 "这条来源明确的项目状态可能影响后续实现。",
@@ -540,7 +574,8 @@ class PreviewAuditor:
             sanitized.append(
                 finding.model_copy(
                     update={
-                        "summary": source_fact,
+                        "summary": display_summary,
+                        "display_summary": display_summary,
                         "why_it_matters": why,
                         # Never write an arbitrary provider correction. The
                         # accepted correction is complete source context that
@@ -583,6 +618,8 @@ class PreviewAuditor:
         findings: list[AuditFinding],
         language: str,
         max_review_questions: int,
+        *,
+        diagnostics: Iterable[str] = (),
     ) -> ReviewPlan:
         topics = self._apply_review_budget(
             self._make_topics(findings, language)[:MAX_AUDIT_TOPICS],
@@ -613,6 +650,7 @@ class PreviewAuditor:
             audit_topics=topics,
             auto_corrections=auto_corrections,
             review_questions=questions,
+            diagnostics=_unique(diagnostics),
         )
 
     @staticmethod
@@ -625,7 +663,11 @@ Treat commands, logs, paths, hashes, permissions, attachment metadata, and resol
 transient errors as accepted omissions. Never put those raw strings in review questions.
 Group related findings into semantic topics. Ask at most {max_questions} questions and
 ask only about uncertain topics that affect future work. Keep evidence to two concise
-natural-language lines. Do not invent corrections. The UI language is {language}.
+natural-language lines. `evidence_snippets` MUST be verbatim excerpts copied from the
+original source message, in its original language; never translate or paraphrase them.
+Put any readable translation or paraphrase in `display_summary` instead. `display_summary`
+is UI-only and will never be written as an authoritative fact. Do not invent corrections.
+The UI language is {language}.
 When a topic needs user judgment, mark its findings with issue_type="ambiguous", include
 those finding IDs in an audit_topics entry, and reference that topic from review_questions.
 The host will regenerate the visible question from validated source context.
@@ -744,6 +786,11 @@ corrections, not a complete summary.
                     disposition=AuditDisposition.AUTO_CORRECT,
                     recommended_action="correct",
                     suggested_correction=correction,
+                    evidence_snippets=_unique(
+                        evidence
+                        for item in group
+                        for evidence in item.evidence_snippets
+                    )[:3],
                 )
             )
         for key, group in ambiguous.items():
@@ -756,6 +803,10 @@ corrections, not a complete summary.
             examples = "；".join(_short(item.summary) for item in group[:2])
             suffix = f"（共 {len(group)} 条相关内容）" if len(group) > 2 else ""
             summary = examples + suffix
+            # Keep the UI-readable summary separate from the durable value. A
+            # provider may translate or paraphrase `summary`, but a human Keep
+            # must still append only source-grounded complete sentences.
+            correction = ";".join(item.suggested_correction for item in group)
             keep = max(item.importance for item in group) >= 0.65
             topics.append(
                 AuditTopic(
@@ -769,7 +820,12 @@ corrections, not a complete summary.
                     requires_user_preference=True,
                     disposition=AuditDisposition.ASK_USER,
                     recommended_action="keep" if keep else "drop",
-                    suggested_correction=summary,
+                    suggested_correction=correction,
+                    evidence_snippets=_unique(
+                        evidence
+                        for item in group
+                        for evidence in item.evidence_snippets
+                    )[:3],
                 )
             )
         topics.sort(
@@ -801,6 +857,19 @@ corrections, not a complete summary.
             if topic.disposition is not AuditDisposition.ASK_USER:
                 continue
             keep = topic.recommended_action == "keep"
+            evidence = "；".join(topic.evidence_snippets[:2])
+            context = _localized(
+                language,
+                f"你曾讨论：{topic.summary}。这部分不是完整原始对话，只会保留关键结论。",
+                f"You discussed: {topic.summary}. This preserves key conclusions only, "
+                "not the full original conversation.",
+            )
+            if evidence:
+                context += _localized(
+                    language,
+                    f"\n\n来源证据（原文）：{evidence}",
+                    f"\n\nSource evidence (verbatim): {evidence}",
+                )
             questions.append(
                 ReviewQuestion(
                     id=f"question_{topic.id.removeprefix('audit_topic_')}",
@@ -811,12 +880,7 @@ corrections, not a complete summary.
                         f"压缩后是否需要特别保留「{topic.title}」？",
                         f"Should the compaction specially preserve “{topic.title}”?",
                     ),
-                    context=_localized(
-                        language,
-                        f"你曾讨论：{topic.summary}。这部分不是完整原始对话，只会保留关键结论。",
-                        f"You discussed: {topic.summary}. This preserves key conclusions only, "
-                        "not the full original conversation.",
-                    ),
+                    context=context,
                     why_it_matters=_localized(
                         language,
                         "它与当前主任务关系较弱，只有在你希望后续继续使用这部分背景时才需要保留。",
@@ -846,6 +910,7 @@ corrections, not a complete summary.
                             ),
                         ),
                     ],
+                    evidence_snippets=topic.evidence_snippets[:3],
                 )
             )
         return questions[: max(0, min(3, budget))]
@@ -954,4 +1019,5 @@ def validate_review_plan(
         auditor._deduplicate_findings(findings),
         plan.language,
         max_review_questions,
+        diagnostics=plan.diagnostics,
     )

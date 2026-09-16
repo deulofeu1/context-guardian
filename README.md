@@ -84,8 +84,8 @@ leaving an older Python core installed. For a reproducible installation, pin the
 core to the adapter's published version, for example:
 
 ```bash
-python3 -m pip install "context-guardian-core==0.3.1"
-dsh plugin --profile web add context-guardian-deepseek-harness@0.3.1
+python3 -m pip install "context-guardian-core==0.3.3"
+dsh plugin --profile web add context-guardian-deepseek-harness@0.3.3
 ```
 
 If a bridge operation is unsupported, the adapter now includes the underlying
@@ -166,9 +166,11 @@ the Context Guardian compaction row.
 
 The audit model is untrusted and cannot promote a claim by itself. Provider findings
 must cite an eligible message from the current compaction request, and each evidence
-snippet is matched against that source before it can become a Review topic or Reviewed
-Fact. Host-internal planning metadata, system/plugin messages, tool calls, paths,
-hashes, logs, and resolved mechanical errors are excluded from the review surface.
+snippet is matched verbatim against that source before it can become a Review topic or
+Reviewed Fact. A provider may use `display_summary` for readable or localized UI text,
+but durable facts always use the validated source sentence. Host-internal planning
+metadata, system/plugin messages, tool calls, paths, hashes, logs, and resolved
+mechanical errors are excluded from the review surface.
 
 ## Modes
 

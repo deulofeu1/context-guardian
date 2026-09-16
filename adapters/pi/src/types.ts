@@ -57,6 +57,7 @@ export type AuditFinding = {
   issue_type: "missing" | "incorrect" | "stale" | "ambiguous";
   category: string;
   summary: string;
+  display_summary?: string | null;
   why_it_matters: string;
   suggested_correction: string;
   importance: number;
@@ -77,6 +78,7 @@ export type AuditTopic = {
   disposition: "auto_correct" | "accept_preview" | "ask_user";
   recommended_action: "keep" | "drop" | "correct" | "accept_preview";
   suggested_correction?: string | null;
+  evidence_snippets?: string[];
 };
 
 export type ReviewOption = {
@@ -94,6 +96,7 @@ export type ReviewQuestion = {
   why_it_matters: string;
   recommendation: "keep" | "drop";
   options: ReviewOption[];
+  evidence_snippets?: string[];
 };
 
 export type ReviewPlan = {
@@ -105,6 +108,7 @@ export type ReviewPlan = {
   auto_corrections: string[];
   accepted_omissions: string[];
   review_questions: ReviewQuestion[];
+  diagnostics?: string[];
 };
 
 export type ReviewedFact = {

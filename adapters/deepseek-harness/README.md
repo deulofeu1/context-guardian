@@ -27,11 +27,11 @@ dsh plugin --profile web add context-guardian-deepseek-harness
 
 The adapter and Python core share a versioned bridge contract and must stay on
 the same `0.3.x` release line. Pin both sides when reproducing a published setup;
-for example, the `0.3.1` pair is:
+for example, the `0.3.3` pair is:
 
 ```bash
-python3 -m pip install "context-guardian-core==0.3.1"
-dsh plugin --profile web add context-guardian-deepseek-harness@0.3.1
+python3 -m pip install "context-guardian-core==0.3.3"
+dsh plugin --profile web add context-guardian-deepseek-harness@0.3.3
 ```
 
 If an older core does not recognize an operation used by the adapter, the
@@ -77,10 +77,12 @@ export CONTEXT_GUARDIAN_PYTHON=/absolute/path/to/python
 The adapter does not receive or forward `DEEPSEEK_API_KEY`. Structured inspection calls go back through DeepSeek Harness's active `ctx.llm` route, so Harness remains the only process that resolves provider credentials.
 
 Provider audit output is untrusted. Findings must cite a message from the current
-request and evidence snippets must match that message before they can become Review
-topics or Reviewed Facts. Host planning metadata, system/plugin messages, tool calls,
-paths, hashes, logs, and resolved mechanical errors cannot enter the review UI. This
-is the same provenance rule used by the Pi adapter.
+request and evidence snippets must match that message verbatim before they can become
+Review topics or Reviewed Facts. Readable or translated provider text is display-only;
+the UI shows original source evidence separately and persists only the validated source
+sentence. Host planning metadata, system/plugin messages, tool calls, paths, hashes,
+logs, and resolved mechanical errors cannot enter the review UI. This is the same
+provenance rule used by the Pi adapter.
 
 If the core is installed in a virtual environment, set
 `CONTEXT_GUARDIAN_PYTHON=/absolute/path/to/venv/bin/python` before starting Harness.

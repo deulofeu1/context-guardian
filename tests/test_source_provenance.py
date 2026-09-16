@@ -2,8 +2,14 @@ from context_guardian import ContextGuardian
 from context_guardian.models import AuditTopic, ReviewOption, ReviewPlan, ReviewQuestion
 
 
-def finding(*, source_id: str, evidence: str, category: str = "decision") -> dict:
-    return {
+def finding(
+    *,
+    source_id: str,
+    evidence: str,
+    category: str = "decision",
+    display_summary: str | None = None,
+) -> dict:
+    result = {
         "id": f"finding-{source_id}",
         "issue_type": "missing",
         "category": category,
@@ -15,6 +21,9 @@ def finding(*, source_id: str, evidence: str, category: str = "decision") -> dic
         "source_message_ids": [source_id],
         "evidence_snippets": [evidence],
     }
+    if display_summary is not None:
+        result["display_summary"] = display_summary
+    return result
 
 
 class StaticAuditProvider:
@@ -133,6 +142,7 @@ def test_provider_review_question_is_honored_after_finding_grounding():
                     source_id="side-topic",
                     evidence="optional adapter discussion",
                     category="important_fact",
+                    display_summary="应保持适配器可选，以便后续部署。",
                 )
             ],
             audit_topics=[
@@ -173,6 +183,19 @@ def test_provider_review_question_is_honored_after_finding_grounding():
     assert len(plan.review_questions) == 1
     assert plan.review_questions[0].topic_id == plan.audit_topics[0].id
     assert plan.findings[0].issue_type == "ambiguous"
+    assert "应保持适配器可选" in plan.review_questions[0].context
+    assert "optional adapter discussion" in plan.review_questions[0].context
+    assert plan.review_questions[0].evidence_snippets == [
+        "I am unsure whether to keep the optional adapter discussion."
+    ]
+
+    appendix = ContextGuardian().build_reviewed_facts(
+        review_plan=plan,
+        answers=[{"question_id": plan.review_questions[0].id, "action": "keep"}],
+        messages=messages,
+    )
+    assert appendix.facts[-1].text == "I am unsure whether to keep the optional adapter discussion."
+    assert "应保持适配器可选，以便后续部署" not in appendix.text
 
 
 def test_provider_facts_expand_short_evidence_to_complete_source_context():
@@ -208,6 +231,37 @@ def test_provider_facts_expand_short_evidence_to_complete_source_context():
     assert "needs to scroll" not in corrections
     assert "Lost-in-Middle" not in corrections
     assert "The user needs to scroll to continue reading the full report." in appendix.text
+
+
+def test_paraphrased_provider_evidence_is_rejected_with_visible_diagnostic():
+    messages = [
+        {
+            "id": "source",
+            "role": "user",
+            "content": "The adapter should remain optional for future deployments.",
+        }
+    ]
+    provider = StaticAuditProvider(
+        ReviewPlan(
+            language="zh-CN",
+            findings=[
+                finding(
+                    source_id="source",
+                    evidence="该适配器应保持可选，以便后续部署。",
+                    category="important_fact",
+                    display_summary="该适配器应保持可选。",
+                )
+            ],
+        )
+    )
+
+    plan = ContextGuardian(provider=provider).audit_preview(messages, preview="", language="zh-CN")
+
+    assert plan.findings == []
+    assert plan.review_questions == []
+    assert len(plan.diagnostics) == 1
+    assert "逐字来源证据校验" in plan.diagnostics[0]
+    assert "raw=1 kept=0 reason=evidence_not_verbatim" in plan.diagnostics[0]
 
 
 def test_large_ambiguous_input_is_bounded_and_topics_are_grouped():
