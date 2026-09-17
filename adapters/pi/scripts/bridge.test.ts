@@ -42,6 +42,22 @@ test("Pi normalization marks host metadata and execution records as non-evidence
   assert.equal(messages[3].provenance?.user_authored, true);
 });
 
+test("Pi normalization keeps text blocks only and never serializes wrapper payloads", () => {
+  const messages = normalizePiMessages([{
+    role: "assistant",
+    content: [
+      { type: "text", text: "PostgreSQL is selected." },
+      { type: "toolCall", name: "grep", arguments: { pattern: "OAuth" } },
+      { type: "json", path: "/tmp/raw.json", payload: { hidden: true } },
+    ],
+  }]);
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].content, "PostgreSQL is selected.");
+  assert.equal(messages[0].content.includes("raw.json"), false);
+  assert.equal(messages[0].metadata?.pi_unknown_block_count, 1);
+  assert.equal(messages[0].provenance?.source_kind, "execution_noise");
+});
+
 test("Pi bridge detects language from user messages only", () => {
   assert.equal(preferredLanguage([
     { role: "assistant", content: "中文 assistant text", id: "a1" },
@@ -83,9 +99,10 @@ test("Pi review UI separates localized summary from verbatim source evidence", (
       { id: "drop", label: "丢弃", description: "接受原生预览。" },
     ],
     evidence_snippets: ["The adapter should remain optional for future deployments."],
+    source_message_ids: ["source-1"],
   });
   assert.match(body, /该适配器应保持可选/);
-  assert.match(body, /来源证据（原文，仅用于核对）/);
+  assert.match(body, /来源证据（原文，仅用于核对/);
   assert.match(body, /The adapter should remain optional/);
 });
 

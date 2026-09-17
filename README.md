@@ -84,8 +84,8 @@ leaving an older Python core installed. For a reproducible installation, pin the
 core to the adapter's published version, for example:
 
 ```bash
-python3 -m pip install "context-guardian-core==0.4.1"
-dsh plugin --profile web add context-guardian-deepseek-harness@0.4.1
+python3 -m pip install "context-guardian-core==0.4.2"
+dsh plugin --profile web add context-guardian-deepseek-harness@0.4.2
 ```
 
 If a bridge operation is unsupported, the adapter now includes the underlying
@@ -319,7 +319,7 @@ enters the Python process:
 
 ```bash
 CONTEXT_GUARDIAN_DSH_LIVE=1 \
-CONTEXT_GUARDIAN_FIXTURE_PACKAGE=context-guardian-deepseek-harness@0.4.1 \
+CONTEXT_GUARDIAN_FIXTURE_PACKAGE=context-guardian-deepseek-harness@0.4.2 \
 npm run dsh-fixture-smoke
 ```
 

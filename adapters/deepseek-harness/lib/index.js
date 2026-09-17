@@ -49,20 +49,35 @@ export function answersForNoUi(plan) {
     }));
 }
 export function reviewQuestionsForUi(plan) {
-    return plan.review_questions.slice(0, MAX_REVIEW_QUESTIONS).map((question) => ({
-        id: question.id,
-        header: question.title,
-        question: question.question,
-        detail: `${plan.overview}\n\n${question.question}\n\n${question.context}\n\nWhy it matters: ${question.why_it_matters}`
-            + (question.evidence_snippets?.length
-                ? `\n\nSource evidence (verbatim, for verification):\n${question.evidence_snippets.join("\n")}`
-                : "")
-            + `\n\nThe full original conversation is not preserved.\n\n${question.options.map((option) => `${option.label}: ${option.description}`).join("\n")}`,
-        options: question.options.map((option) => ({
-            label: option.label,
-            description: option.description,
-        })),
-    }));
+    const chinese = plan.language === "zh-CN";
+    return plan.review_questions.slice(0, MAX_REVIEW_QUESTIONS).map((question, index) => {
+        const evidence = question.evidence_snippets?.length
+            ? `${chinese ? "来源证据（原文，仅用于核对" : "Source evidence (verbatim, for verification"}`
+                + `${question.source_message_ids?.length ? ` · ${chinese ? "消息" : "messages"} ${question.source_message_ids.join(", ")}` : ""}）：\n`
+                + question.evidence_snippets.join("\n")
+            : "";
+        const detailParts = [
+            ...(index === 0 && plan.overview ? [plan.overview] : []),
+            question.context,
+            question.why_it_matters
+                ? `${chinese ? "原因" : "Why it matters"}：${question.why_it_matters}`
+                : "",
+            evidence,
+            chinese
+                ? "这只会影响上面列出的关键结论，不会保留完整原始对话。"
+                : "This affects only the key conclusion shown above; the full original conversation is not preserved.",
+        ].filter(Boolean);
+        return {
+            id: question.id,
+            header: question.title,
+            question: question.question,
+            detail: detailParts.join("\n\n"),
+            options: question.options.map((option) => ({
+                label: option.label,
+                description: option.description,
+            })),
+        };
+    });
 }
 export async function answerReviewQuestions(ctx, agent, plan, signal) {
     if (plan.review_questions.length === 0)
@@ -131,7 +146,7 @@ function normalizeInput(input) {
 function textFromSummary(result) {
     const blocks = result.summary;
     return blocks
-        .filter((block) => block?.type === "text" || block?.type === "reasoning")
+        .filter((block) => block?.type === "text")
         .map((block) => block.text ?? "")
         .join("\n")
         .trim();

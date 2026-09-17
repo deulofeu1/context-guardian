@@ -159,6 +159,24 @@ export function createSession(sourcePath, tempDir, fillerTurns = 320) {
     Date.now() + sequence * 1000,
   ));
 
+  // Issue #23 regression material: these are real user-authored turns, but
+  // they are implementation diagnostics rather than durable project facts.
+  append({
+    role: "user",
+    content: "REASONING_EFFORTS = [off, low, high, max]；chooseReasoningEffort 解释了弹窗为什么出现。这个诊断还列出了 _source_status_findings、_finding、_local_audit、_make_topics 的调用链。",
+    timestamp: Date.now() + sequence * 1000,
+  });
+  append({
+    role: "user",
+    content: "<path>/Users/link/Documents/ChatGPT/ContextGuardian/context_guardian/audit.py</path><type>file</type><content>{\"path\":\"/tmp/audit.py\",\"type\":\"file\",\"content\":\"source inventory\"}</content>",
+    timestamp: Date.now() + sequence * 1000,
+  });
+  append({
+    role: "user",
+    content: "结构化审计关闭 reasoning，将输出额度用于 JSON 结果。",
+    timestamp: Date.now() + sequence * 1000,
+  });
+
   const filler =
     "背景实现记录：这是 Context Guardian fixture smoke test 的重复填充，表示不会改变关键项目决定的常规进度，" +
     "压缩时可以安全概括。";

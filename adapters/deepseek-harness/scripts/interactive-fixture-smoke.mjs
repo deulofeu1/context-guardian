@@ -121,6 +121,9 @@ function buildFixtureEvents() {
     "Temporary syntax error fixed during local debugging.",
     "npm warn deprecated package output from the install command.",
     "rg --files | head -50",
+    "REASONING_EFFORTS = [off, low, high, max]；chooseReasoningEffort 解释了弹窗为什么出现。这个诊断还列出了 _source_status_findings、_finding、_local_audit、_make_topics 的调用链。",
+    "D:\\anaconda3\\Lib\\site-packages\\context_guardian\\audit.py /Users/link/Documents/ChatGPT/ContextGuardian/context_guardian/audit.py function inventory and call sites。",
+    "<path>/Users/link/Documents/ChatGPT/ContextGuardian/context_guardian/audit.py</path><type>file</type><content>{\"path\":\"/tmp/audit.py\",\"type\":\"file\",\"content\":\"source inventory\"}</content>",
   ];
   const allTurns = [...durableTurns, ...noisyTurns, ...durableTurns, ...noisyTurns];
   for (let index = 0; index < allTurns.length; index += 1) {
@@ -138,6 +141,7 @@ function buildFixtureEvents() {
     if (userText.startsWith("TODO：")) sourceIds.auth = userMessage.id;
     if (userText.startsWith("当前验证状态：")) sourceIds.status = userMessage.id;
     if (userText.startsWith("旁支讨论：")) sourceIds.side = userMessage.id;
+    if (userText.startsWith("REASONING_EFFORTS")) sourceIds.diagnostic = userMessage.id;
     push("user/message", userMessage, { surfaceOp: "append" });
 
     const assistantText = userText.startsWith("grep") || userText.startsWith("npm") || userText.startsWith("rg")
@@ -411,6 +415,19 @@ async function main() {
         source_message_ids: [sourceIds.side],
         evidence_snippets: ["旁支讨论：npm 的基本用途与当前数据库设计无关。"],
       },
+      {
+        id: "finding-diagnostic",
+        issue_type: "ambiguous",
+        category: "important_fact",
+        summary: "REASONING_EFFORTS = [off, low, high, max]；chooseReasoningEffort 解释了弹窗为什么出现。",
+        display_summary: "D:\\anaconda3\\Lib\\site-packages\\context_guardian\\audit.py _make_topics call site",
+        why_it_matters: "raw diagnostic material",
+        suggested_correction: "REASONING_EFFORTS = [off, low, high, max]；chooseReasoningEffort 解释了弹窗为什么出现。",
+        importance: 0.3,
+        confidence: 0.4,
+        source_message_ids: [sourceIds.diagnostic],
+        evidence_snippets: ["REASONING_EFFORTS = [off, low, high, max]；chooseReasoningEffort 解释了弹窗为什么出现。"],
+      },
     ],
     audit_topics: [
       {
@@ -597,7 +614,7 @@ async function main() {
     console.log(`DeepSeek Harness Context Guardian ${liveMode ? "live" : "replay"} fixture is ready.`);
     console.log("Open the printed Web URL, select 'Context Guardian 预置长对话（请先选择）' (or the context-guardian-fixture-long session), enter /compact, and answer at most three topic questions.");
     console.log("Expected automatic corrections: SQLite failure reason and the incomplete auth.py TODO.");
-    console.log("Expected correction question: unresolved native-popup verification status; the npm fundamentals side discussion may appear as one bounded question; execution noise stays out of the UI.");
+    console.log("Expected correction question: unresolved native-popup verification status; the npm fundamentals side discussion may appear as one bounded question; raw reasoning, paths, wrappers, and execution noise stay out of the UI.");
     console.log("Expected final result: one native Preview plus a Reviewed Facts block containing the selected corrections and no raw logs.");
     if (liveMode) console.log(`Live route: ${hostProvider}/${hostModel}; credentials stay inside DeepSeek Harness.`);
     console.log("Exit the Web process with Ctrl-C when finished.");

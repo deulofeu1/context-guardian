@@ -55,8 +55,8 @@ export function questionBody(question: ReviewQuestion): string {
   );
   const evidence = question.evidence_snippets?.length
     ? chinese
-      ? `\n\n来源证据（原文，仅用于核对）：\n${question.evidence_snippets.join("\n")}`
-      : `\n\nSource evidence (verbatim, for verification):\n${question.evidence_snippets.join("\n")}`
+      ? `\n\n来源证据（原文，仅用于核对${question.source_message_ids?.length ? ` · 消息 ${question.source_message_ids.join(", ")}` : ""}）：\n${question.evidence_snippets.join("\n")}`
+      : `\n\nSource evidence (verbatim, for verification${question.source_message_ids?.length ? ` · messages ${question.source_message_ids.join(", ")}` : ""}):\n${question.evidence_snippets.join("\n")}`
     : "";
   return `${question.question}\n\n${question.context}\n\n${chinese ? "原因：" : "Why it matters: "}${question.why_it_matters}`
     + `${evidence}\n\n${chinese ? "请选择下方操作；这不会保留完整原始对话。" : "Choose an action below; the full original conversation is not preserved."}`;

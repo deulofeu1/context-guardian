@@ -13,7 +13,7 @@ import re
 import unicodedata
 from collections.abc import Iterable
 
-from .audit import is_execution_noise, validate_review_plan
+from .audit import _complete_conclusion, is_execution_noise, validate_review_plan
 from .models import (
     AuditDisposition,
     AuditOperation,
@@ -63,7 +63,9 @@ def _normalize_text(value: object, *, max_length: int = _MAX_FACT_CHARS) -> str:
     text = text.replace(START_MARKER, "[reviewed-facts marker removed]")
     text = text.replace(END_MARKER, "[reviewed-facts end marker removed]")
     text = text.replace("<!--", "&lt;!--").replace("-->", "--&gt;")
-    return text[:max_length].rstrip()
+    if len(text) > max_length:
+        text = _complete_conclusion(text, limit=max_length)
+    return text if text and len(text) <= max_length else ""
 
 
 def _fact_id(text: str) -> str:
@@ -321,6 +323,43 @@ def _with_carried_forward(preview: str, appendix: ReviewedFactsAppendix) -> Revi
     return appendix.model_copy(update={"facts": facts, "text": _render_appendix(appendix.language, facts)})
 
 
+def _effective_topic_payload(plan: ReviewPlan, topic) -> tuple[str, str, str]:
+    """Capture the exact operation text the host showed to a user."""
+
+    findings = {finding.id: finding for finding in plan.findings}
+    question = next(
+        (item for item in plan.review_questions if item.topic_id == topic.id),
+        None,
+    )
+    target = (
+        (question.current_summary_target if question is not None else None)
+        or topic.current_summary_target
+        or next(
+            (
+                finding.current_summary_target or finding.current_summary_text
+                for finding_id in topic.finding_ids
+                if (finding := findings.get(finding_id)) is not None
+                and (finding.current_summary_target or finding.current_summary_text)
+            ),
+            "",
+        )
+    )
+    replacement = (
+        (question.proposed_text if question is not None else None)
+        or topic.proposed_text
+        or topic.suggested_correction
+        or next(
+            (
+                finding.proposed_text or finding.suggested_correction
+                for finding_id in topic.finding_ids
+                if (finding := findings.get(finding_id)) is not None
+            ),
+            "",
+        )
+    )
+    return (str(topic.operation), str(target or ""), str(replacement or ""))
+
+
 def append_reviewed_facts(
     preview: str,
     appendix: ReviewedFactsAppendix,
@@ -370,6 +409,20 @@ def finalize_preview(
     original = str(preview)
     diagnostics: list[str] = []
     incoming_plan = ReviewPlan.model_validate(review_plan)
+    source_messages = list(messages or [])
+    if not source_messages and (
+        incoming_plan.findings
+        or incoming_plan.audit_topics
+        or incoming_plan.review_questions
+    ):
+        diagnostics.append("source_validation_unavailable")
+        return PreviewFinalization(
+            original_preview=original,
+            final_summary=original,
+            appendix=ReviewedFactsAppendix(language=incoming_plan.language),
+            changed=False,
+            diagnostics=diagnostics,
+        )
     incoming_answers = _answer_map(answers)
     incoming_topic_actions: dict[str, str] = {}
     incoming_finding_actions: dict[tuple[str, tuple[str, ...]], str] = {}
@@ -385,6 +438,10 @@ def finalize_preview(
                     incoming_finding_actions[
                         (finding.category.value, tuple(sorted(finding.source_message_ids)))
                     ] = action
+    incoming_payloads = {
+        topic.id: _effective_topic_payload(incoming_plan, topic)
+        for topic in incoming_plan.audit_topics
+    }
     expected = incoming_plan.preview_fingerprint
     if expected and expected != preview_fingerprint(original):
         diagnostics.append("preview_fingerprint_mismatch")
@@ -396,13 +453,69 @@ def finalize_preview(
             changed=False,
             diagnostics=diagnostics,
         )
-    plan = validate_review_plan(incoming_plan, messages, preview=original)
+    plan = validate_review_plan(incoming_plan, source_messages, preview=original)
+
+    blocked_topic_ids: set[str] = set()
+    blocked_finding_ids: set[str] = set()
+    for incoming_topic in incoming_plan.audit_topics:
+        action = incoming_answers.get(incoming_topic.id)
+        if action is None:
+            for question in incoming_plan.review_questions:
+                if question.topic_id == incoming_topic.id:
+                    action = incoming_answers.get(question.id)
+                    break
+        writes = incoming_topic.disposition is AuditDisposition.AUTO_CORRECT or action in {
+            "keep",
+            "add",
+            "correct",
+        }
+        if not writes:
+            continue
+        rebuilt_topic = next(
+            (topic for topic in plan.audit_topics if topic.id == incoming_topic.id),
+            None,
+        )
+        if (
+            rebuilt_topic is None
+            or _effective_topic_payload(plan, rebuilt_topic)
+            != incoming_payloads[incoming_topic.id]
+        ):
+            blocked_topic_ids.add(incoming_topic.id)
+            blocked_finding_ids.update(incoming_topic.finding_ids)
+            diagnostics.append(f"approved_text_changed:{incoming_topic.id}")
+
+    safe_topics = [
+        topic.model_copy(update={
+            "disposition": AuditDisposition.ACCEPT_PREVIEW,
+            "recommended_action": "accept_preview",
+            "requires_user_preference": False,
+        }) if topic.id in blocked_topic_ids else topic
+        for topic in plan.audit_topics
+    ]
+    blocked_corrections = {
+        finding.suggested_correction.casefold()
+        for finding in plan.findings
+        if finding.id in blocked_finding_ids
+    }
+    safe_plan = plan.model_copy(update={
+        "audit_topics": safe_topics,
+        "review_questions": [
+            question for question in plan.review_questions
+            if question.topic_id not in blocked_topic_ids
+        ],
+        "auto_corrections": [
+            correction for correction in plan.auto_corrections
+            if correction.casefold() not in blocked_corrections
+        ],
+    })
 
     answers_by_key = _answer_map(answers)
     finding_by_id = {finding.id: finding for finding in plan.findings}
     edits: list[PreviewEdit] = []
     replacements: list[tuple[str, str, str, str | None]] = []
     for topic in plan.audit_topics:
+        if topic.id in blocked_topic_ids:
+            continue
         action = None
         if topic.disposition is AuditDisposition.ASK_USER:
             action = answers_by_key.get(topic.id)
@@ -503,7 +616,7 @@ def finalize_preview(
 
     appendix = _with_carried_forward(
         edited,
-        build_reviewed_facts(plan, answers, messages, preview=original, validated=True),
+        build_reviewed_facts(safe_plan, answers, source_messages, preview=original, validated=True),
     )
     final = append_reviewed_facts(edited, appendix)
     return PreviewFinalization(
