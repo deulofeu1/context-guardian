@@ -36,6 +36,7 @@ from .policy import ReviewPolicy
 from .provenance import (
     SourceIndex,
     evidence_matches_source,
+    is_diagnostic_background,
     is_execution_noise,
     is_source_allowed,
     normalize_evidence_text,
@@ -51,6 +52,7 @@ _TOKEN = re.compile(r"[A-Za-z][A-Za-z0-9_.-]{2,}|[\u4e00-\u9fff]+", re.I)
 _LATIN_WORD = re.compile(r"\b[A-Za-z][A-Za-z0-9_'-]*\b")
 _UNRESOLVED_STATUS = re.compile(
     r"\b(?:incomplete|unfinished|unresolved|not\s+(?:verified|tested|done|complete)|"
+    r"not\s+yet\s+(?:verified|tested|done|complete)|"
     r"did\s+not\s+appear|has\s+not\s+appeared)\b"
     r"|未完成|尚未完成|未解决|未验证|未测试|未弹窗|没有弹窗|尚未|仍未|还没",
     re.I,
@@ -358,6 +360,8 @@ def _contradicts(content: str, preview: str) -> bool:
             "not verified",
             "unverified",
             "not tested",
+            "not complete",
+            "not yet complete",
             "did not appear",
             "didn't appear",
             "未验证",
@@ -370,8 +374,17 @@ def _contradicts(content: str, preview: str) -> bool:
             "停在",
         )
     ):
-        return _COMPLETION.search(lower_preview) is not None
+        return _is_resolved_completion(lower_preview)
     return False
+
+
+def _is_resolved_completion(content: str) -> bool:
+    """Return true only for an affirmative completion, not ``not complete``."""
+
+    value = str(content or "")
+    if _UNRESOLVED_STATUS.search(value):
+        return False
+    return _COMPLETION.search(value) is not None
 
 
 def _strong_durable(candidate: MemoryCandidate) -> bool:
@@ -408,6 +421,56 @@ def _display_excerpt(content: str | None, limit: int = MAX_DISPLAY_TEXT_CHARS) -
     return normalized[: max(1, limit - 1)].rstrip() + "…"
 
 
+def _complete_segments(content: str) -> list[str]:
+    """Split text only at boundaries that can stand as complete conclusions."""
+
+    normalized = re.sub(r"\s+", " ", str(content or "")).strip()
+    if not normalized:
+        return []
+    segments: list[str] = []
+    for sentence in re.split(r"(?<=[。！？!?])\s*|(?<=[.;；])\s+|\n+", normalized):
+        sentence = sentence.strip(" -\t")
+        if sentence:
+            segments.append(sentence)
+    return segments or [normalized]
+
+
+def _complete_conclusion(content: str, *, evidence: str | None = None, limit: int = 500) -> str:
+    """Return a complete source-backed conclusion or an empty string.
+
+    This function deliberately refuses to slice a long sentence.  If a source
+    message contains several clauses, it may select the complete clause that
+    contains the provider's verbatim evidence; otherwise the caller must skip
+    the write rather than manufacture a mid-sentence fact.
+    """
+
+    normalized = re.sub(r"\s+", " ", str(content or "")).strip()
+    if not normalized:
+        return ""
+    normalized_evidence = normalize_evidence_text(evidence) if evidence else ""
+    candidates = _complete_segments(normalized)
+    if normalized_evidence:
+        matching = [
+            candidate
+            for candidate in candidates
+            if normalized_evidence in normalize_evidence_text(candidate)
+        ]
+        # Evidence must remain inside the returned complete conclusion. Do not
+        # silently substitute an unrelated short sentence when the cited one is
+        # too long or has no safe sentence boundary.
+        if not matching:
+            return ""
+        candidates = matching
+    for candidate in candidates:
+        if len(candidate) <= limit and not is_execution_noise(candidate):
+            return candidate
+    # A source with no sentence boundary can still contain a short, complete
+    # evidence phrase.  It is safe only when the whole normalized source fits.
+    if len(normalized) <= limit and not is_execution_noise(normalized):
+        return normalized
+    return ""
+
+
 def _source_context(source: str, evidence: str, *, limit: int = 500) -> str:
     """Return a complete source sentence or bounded source context.
 
@@ -424,26 +487,7 @@ def _source_context(source: str, evidence: str, *, limit: int = 500) -> str:
     if normalized_evidence not in normalize_evidence_text(normalized_source):
         return ""
 
-    segments = [
-        segment.strip()
-        for segment in re.split(r"(?<=[.!?。！？])\s+|\n+", normalized_source)
-        if segment.strip()
-    ]
-    matching = [
-        segment
-        for segment in segments
-        if normalized_evidence in normalize_evidence_text(segment)
-    ]
-    for segment in matching:
-        if not is_execution_noise(segment):
-            return segment[:limit].rstrip()
-
-    # If the source has no sentence boundary, retain the whole source when it
-    # is reasonably sized. This remains safer than a provider paraphrase or a
-    # mid-sentence evidence slice.
-    if len(normalized_source) <= limit and not is_execution_noise(normalized_source):
-        return normalized_source
-    return ""
+    return _complete_conclusion(normalized_source, evidence=evidence, limit=limit)
 
 
 def _grounded_source_fact(finding: AuditFinding, source_index: SourceIndex) -> str:
@@ -463,10 +507,80 @@ def _grounded_source_fact(finding: AuditFinding, source_index: SourceIndex) -> s
 def _display_summary(finding: AuditFinding, source_fact: str) -> str:
     """Choose readable provider text without making it durable authority."""
 
-    candidate = _short(finding.display_summary or "", 500)
-    if candidate and not is_execution_noise(candidate):
-        return candidate
-    return source_fact
+    raw_candidate = str(finding.display_summary or "").strip()
+    if (
+        raw_candidate
+        and not is_execution_noise(raw_candidate)
+        and not is_diagnostic_background(raw_candidate)
+    ):
+        return _display_excerpt(raw_candidate) or source_fact
+    return _display_excerpt(source_fact) or source_fact
+
+
+def _specific_impact(
+    category: CandidateCategory,
+    fact: str,
+    language: str,
+    *,
+    operation: AuditOperation | None = None,
+) -> str:
+    """Describe a concrete user-facing consequence, not a generic warning."""
+
+    subject = _display_excerpt(fact, 180) or "this conclusion"
+    if _looks_like_verification_status(fact) or category is CandidateCategory.WORKING_STATE:
+        return _localized(
+            language,
+            f"如果保留当前摘要，后续任务可能把“{subject}”误认为已验证并跳过必要检查。",
+            "Keeping the current preview may make later work treat "
+            f"“{subject}” as verified and skip a necessary check.",
+        )
+    if category in {CandidateCategory.CONSTRAINT, CandidateCategory.REQUIREMENT}:
+        return _localized(
+            language,
+            f"后续实现需要继续遵守“{subject}”，否则可能破坏当前任务边界。",
+            f"Later implementation needs to keep “{subject}” or it may violate the task boundary.",
+        )
+    if category is CandidateCategory.DECISION:
+        return _localized(
+            language,
+            f"后续实现需要知道“{subject}”，以免重新打开已经确定的方案。",
+            f"Later work needs “{subject}” so it does not reopen an already-settled choice.",
+        )
+    if category is CandidateCategory.FAILED_ATTEMPT:
+        return _localized(
+            language,
+            f"保留“{subject}”可以避免后续再次尝试已经被否决的路径。",
+            f"Keeping “{subject}” helps prevent later work from retrying a rejected path.",
+        )
+    if category is CandidateCategory.TODO:
+        return _localized(
+            language,
+            f"后续任务需要知道“{subject}”仍未完成，才能安排下一步。",
+            f"Later work needs to know that “{subject}” is unfinished so it can plan the next step.",
+        )
+    if category in {CandidateCategory.USER_PREFERENCE, CandidateCategory.IMPORTANT_FACT}:
+        return _localized(
+            language,
+            f"这项结论可能影响后续实现：{subject}。",
+            f"This conclusion may affect later implementation: {subject}.",
+        )
+    if category is CandidateCategory.GOAL:
+        return _localized(
+            language,
+            f"后续工作需要继续围绕“{subject}”展开。",
+            f"Later work needs to stay aligned with “{subject}”.",
+        )
+    if category is CandidateCategory.FILE_STATE:
+        return _localized(
+            language,
+            f"后续工作可能需要参考“{subject}”这一文件状态。",
+            f"Later work may need to account for the file state “{subject}”.",
+        )
+    return _localized(
+        language,
+        f"这条来源事实可能影响后续工作：{subject}。",
+        f"This source-backed fact may affect later work: {subject}.",
+    )
 
 
 def _topic_key(content: str, category: CandidateCategory) -> str:
@@ -481,6 +595,30 @@ def _topic_key(content: str, category: CandidateCategory) -> str:
     # sentences from the same topic to cluster through their stable signal words.
     tokens = sorted(_tokens(content))[:2]
     return f"side-discussion:{'-'.join(tokens) or 'other'}"
+
+
+def _topic_title(group: list[AuditFinding], language: str) -> str:
+    """Name the actual decision shown to the user, not its storage bucket."""
+
+    text = "；".join(item.summary for item in group)
+    lowered = text.casefold()
+    if any(_looks_like_verification_status(item.summary) for item in group):
+        return _localized(language, "测试验证状态可能不正确", "Test or delivery status may be incorrect")
+    if "reasoning" in lowered or "reasoning_efforts" in lowered or "思考模式" in text:
+        return _localized(language, "结构化审计的 reasoning 配置", "Structured-audit reasoning configuration")
+    if "sqlite" in lowered and any(item.category is CandidateCategory.FAILED_ATTEMPT for item in group):
+        return _localized(language, "SQLite 已放弃的原因", "Why SQLite was abandoned")
+    if "auth.py" in lowered and any(item.category is CandidateCategory.TODO for item in group):
+        return _localized(language, "auth.py 尚未完成", "Incomplete auth.py work")
+    if "postgresql" in lowered and any(item.category is CandidateCategory.DECISION for item in group):
+        return _localized(language, "PostgreSQL 数据库决定", "PostgreSQL database decision")
+    if "npm" in lowered and any(item.category is CandidateCategory.IMPORTANT_FACT for item in group):
+        return _localized(language, "npm 基础概念旁支讨论", "npm fundamentals side discussion")
+    return _display_excerpt(text, 80) or _localized(
+        language,
+        "需要判断的项目背景",
+        "Project context requiring a decision",
+    )
 
 
 def _localized(language: str, zh: str, en: str) -> str:
@@ -585,6 +723,26 @@ def _contradictory_preview_segment(content: str, preview: str) -> str | None:
         for token in _tokens(content)
         if len(token) >= 4 or re.search(r"[\u4e00-\u9fff]", token)
     }
+    # Generic progress words are not enough to prove that an unrelated
+    # preview sentence contradicts an unfinished TODO. For example, an
+    # ``auth.py`` TODO and a native sentence saying “verification completed”
+    # both contain the Chinese token ``完成`` but refer to different facts.
+    # Keep distinctive subjects and explicit verification markers as the
+    # evidence for a safe replacement target.
+    generic_status_tokens = {
+        "完成",
+        "未完成",
+        "需要",
+        "实现",
+        "仍未",
+        "尚未",
+        "待办",
+        "todo",
+        "incomplete",
+        "unfinished",
+    }
+    distinctive_source_tokens = source_tokens - generic_status_tokens
+    verification_source = _looks_like_verification_status(content)
     segments: list[str] = []
     for raw_line in str(preview or "").splitlines():
         line = raw_line.strip()
@@ -604,8 +762,8 @@ def _contradictory_preview_segment(content: str, preview: str) -> str | None:
             segments.append(prefix + part if part_index == 0 and prefix else part)
     for segment in segments:
         segment_tokens = _tokens(segment)
-        shares_signal = bool(source_tokens.intersection(segment_tokens))
-        if _looks_like_working_state(content):
+        shares_signal = bool(distinctive_source_tokens.intersection(segment_tokens))
+        if verification_source:
             # Chinese status phrases are often tokenized as different long
             # runs (e.g. “当前验证状态” vs “验证与最终校验”). Keep the
             # deterministic conflict check conservative but allow shared
@@ -617,7 +775,7 @@ def _contradictory_preview_segment(content: str, preview: str) -> str | None:
             )
         if not shares_signal:
             continue
-        if _COMPLETION.search(segment) or any(
+        if _is_resolved_completion(segment) or any(
             word in segment.casefold()
             for word in ("selected", "chosen", "final", "采用", "最终", "已完成")
         ):
@@ -851,7 +1009,14 @@ class PreviewAuditor:
 
         findings: list[AuditFinding] = []
         for index, message in enumerate(messages):
+            # Assistant messages often echo a user-authored status. The user
+            # statement is authoritative for this deterministic guard; echoes
+            # must not multiply the proposed correction or evidence list.
+            if not message.provenance.user_authored and message.role != "user":
+                continue
             if not is_source_allowed(message) or not _looks_like_verification_status(message.content):
+                continue
+            if not _complete_conclusion(message.content):
                 continue
             source_id = message.id or f"message_{index + 1:04d}"
             candidate = MemoryCandidate(
@@ -924,11 +1089,6 @@ class PreviewAuditor:
                 continue
             status_signal = _looks_like_working_state(source_fact)
             display_summary = _display_summary(finding, source_fact)
-            why = _localized(
-                language,
-                "这条来源明确的项目状态可能影响后续实现。",
-                "This explicit source-backed project state may affect future implementation.",
-            )
             stable_id = "finding_" + hashlib.sha1(
                 "|".join(
                     [
@@ -967,6 +1127,12 @@ class PreviewAuditor:
                     or finding.task_relation is AuditTaskRelation.PRIMARY
                 )
             )
+            impact_reason = _specific_impact(
+                CandidateCategory.WORKING_STATE if status_signal else finding.category,
+                source_fact,
+                language,
+                operation=operation,
+            )
             sanitized.append(
                 finding.model_copy(
                     update={
@@ -975,7 +1141,7 @@ class PreviewAuditor:
                         "category": CandidateCategory.WORKING_STATE if status_signal else finding.category,
                         "summary": display_summary,
                         "display_summary": display_summary,
-                        "why_it_matters": why,
+                        "why_it_matters": impact_reason,
                         # Never write an arbitrary provider correction. The
                         # accepted correction is complete source context that
                         # contains the validated evidence, not the raw phrase
@@ -993,7 +1159,12 @@ class PreviewAuditor:
                         "requires_user_confirmation": requires_confirmation,
                         "current_summary_text": _display_excerpt(current_target),
                         "current_summary_target": current_target,
-                        "proposed_text": source_fact,
+                        "proposed_text": source_fact if len(source_fact) <= MAX_DISPLAY_TEXT_CHARS else None,
+                        "effect_if_rejected": (
+                            impact_reason
+                            if requires_confirmation
+                            else finding.effect_if_rejected
+                        ),
                     }
                 )
             )
@@ -1108,7 +1279,9 @@ Compare the NATIVE PREVIEW with ORIGINAL SOURCE SIGNALS. Report only source-back
 missing, incorrect, stale, or ambiguous durable context. Goals, constraints, decisions,
 rejected approaches with reasons, unfinished work, and user preferences matter most.
 Treat commands, logs, paths, hashes, permissions, attachment metadata, and resolved
-transient errors as accepted omissions. Never put those raw strings in review questions.
+transient errors as accepted omissions. Treat reasoning traces, source-code/function
+inventories, XML/JSON source wrappers, and provider diagnostics the same way. Never put
+those raw strings in review questions or durable facts.
 Group related findings into semantic topics. Ask at most {max_questions} questions and
 ask only about uncertain topics that affect future work. Keep evidence to two concise
 natural-language lines. `evidence_snippets` MUST be verbatim excerpts copied from the
@@ -1124,7 +1297,9 @@ sentence that is wrong, and operation=keep_preview when an exact safe replacemen
 cannot be proven. `current_summary_text` is only a bounded UI excerpt. For replace,
 `current_summary_target` MUST be an exact unique substring of NATIVE PREVIEW when you
 provide it; the Core will independently re-derive and validate the target. proposed_text
-must be source-backed. Include the finding IDs in the topic
+must be a complete source-backed conclusion, no more than 500 characters; never cut it
+at an arbitrary character limit. If no complete conclusion can be grounded, omit the
+finding rather than exposing a fragment. Include the finding IDs in the topic
 and reference that topic from review_questions when confirmation is required.
 The host will regenerate the visible question from validated source context.
 Return the ReviewPlan schema exactly; auto_corrections must be incremental source-backed
@@ -1146,12 +1321,23 @@ corrections, not a complete summary.
         searchable = "\n".join((preview, previous_summary, retained_context))
         findings: list[AuditFinding] = []
         accepted: list[str] = []
+        diagnostics: list[str] = []
         for candidate in candidates:
             if is_execution_noise(candidate.content) or candidate.category in {
                 CandidateCategory.TOOL_OUTPUT,
                 CandidateCategory.TEMPORARY,
             }:
                 accepted.append(self._omission_label(candidate, language))
+                continue
+            if not _complete_conclusion(candidate.content):
+                diagnostics.append(
+                    _localized(
+                        language,
+                        "部分来源内容过长或缺少完整结论边界，未进入 Review，也未写入持久事实。",
+                        "Some source content was too long or lacked a complete conclusion "
+                        "boundary; it was not shown for Review or written as a durable fact.",
+                    )
+                )
                 continue
             present = _present_in_preview(candidate.content, searchable, candidate.category)
             if present and not _contradicts(candidate.content, searchable):
@@ -1173,6 +1359,7 @@ corrections, not a complete summary.
             self._deduplicate_findings(findings),
             language,
             max_review_questions,
+            diagnostics=diagnostics,
             preview=preview,
         )
         return plan.model_copy(update={"accepted_omissions": _unique(accepted)})
@@ -1184,11 +1371,8 @@ corrections, not a complete summary.
         language: str,
         preview: str,
     ) -> AuditFinding:
-        why = _localized(
-            language,
-            "这条来源明确的项目状态可能影响后续实现。",
-            "This explicit source-backed project state may affect future implementation.",
-        )
+        source_fact = _complete_conclusion(candidate.content) or candidate.content.strip()
+        why = _specific_impact(candidate.category, source_fact, language)
         target = _contradictory_preview_target(candidate.content, preview) if issue_type in {
             AuditIssueType.INCORRECT,
             AuditIssueType.STALE,
@@ -1208,13 +1392,14 @@ corrections, not a complete summary.
             ).hexdigest()[:12],
             issue_type=issue_type,
             category=candidate.category,
-            summary=_short(candidate.content),
+            summary=_display_excerpt(source_fact) or _short(candidate.content),
+            display_summary=_display_excerpt(source_fact),
             why_it_matters=why,
-            suggested_correction=_short(candidate.content),
+            suggested_correction=source_fact,
             importance=candidate.importance,
             confidence=candidate.confidence,
             source_message_ids=candidate.source_message_ids,
-            evidence_snippets=[_short(candidate.content, 180)],
+            evidence_snippets=[source_fact],
             task_relation=_relation_for(candidate.category, candidate.content),
             operation=operation,
             requires_user_confirmation=(candidate.category in {
@@ -1224,14 +1409,14 @@ corrections, not a complete summary.
             } and issue_type in {AuditIssueType.INCORRECT, AuditIssueType.STALE}),
             current_summary_text=_display_excerpt(target),
             current_summary_target=target,
-            proposed_text=_short(candidate.content),
+            proposed_text=source_fact if len(source_fact) <= MAX_DISPLAY_TEXT_CHARS else None,
             effect_if_rejected=(
-                _localized(
-                    language,
-                    "当前摘要中的状态可能继续误导后续任务。",
-                    "The current preview status may continue to mislead future work.",
-                )
-                if target else None
+                why
+                if target or candidate.category in {
+                    CandidateCategory.IMPORTANT_FACT,
+                    CandidateCategory.USER_PREFERENCE,
+                }
+                else None
             ),
         )
 
@@ -1244,34 +1429,15 @@ corrections, not a complete summary.
         for finding in findings:
             grouped[_topic_key(finding.summary, finding.category)].append(finding)
         topics: list[AuditTopic] = []
-        for key, group in grouped.items():
+        for _key, group in grouped.items():
             high_risk = max(item.importance for item in group)
             digest = hashlib.sha1("|".join(item.id for item in group).encode()).hexdigest()[:12]
-            topic_family = key.split(":", 1)[0]
-            is_status = any(
-                item.category is CandidateCategory.WORKING_STATE
-                and _looks_like_verification_status(item.summary)
+            title = _topic_title(group, language)
+            correction = "；".join(
+                item.proposed_text or item.suggested_correction
                 for item in group
+                if item.proposed_text or item.suggested_correction
             )
-            if is_status:
-                title = _localized(
-                    language,
-                    "测试验证状态可能不正确",
-                    "Test or delivery status may be incorrect",
-                )
-            else:
-                title = {
-                    "project-direction": _localized(
-                        language,
-                        "项目目标、约束与技术决定",
-                        "Project goals, constraints, and decisions",
-                    ),
-                    "tooling": _localized(
-                        language, "工具与基础概念旁支讨论", "Tooling and fundamentals side discussion"
-                    ),
-                    "side-discussion": _localized(language, "旁支主题", "Side discussion"),
-                }[topic_family]
-            correction = "；".join(item.suggested_correction for item in group)
             relation = min(
                 (item.task_relation for item in group),
                 key=lambda value: {
@@ -1311,15 +1477,36 @@ corrections, not a complete summary.
                 (item.current_summary_text for item in group if item.current_summary_text),
                 None,
             )
-            proposed = _short(
-                "；".join(item.proposed_text or item.suggested_correction for item in group),
-                500,
+            proposed_candidates = [
+                item.proposed_text or item.suggested_correction
+                for item in group
+                if item.proposed_text or item.suggested_correction
+            ]
+            proposed_candidates = _unique(proposed_candidates)
+            proposed = (
+                "；".join(proposed_candidates)
+                if proposed_candidates and len("；".join(proposed_candidates)) <= MAX_DISPLAY_TEXT_CHARS
+                else None
             )
+            if disposition is AuditDisposition.ASK_USER and not proposed:
+                # A question without a complete write value would ask the user
+                # to approve text they cannot actually inspect. Keep the native
+                # preview and report the safe omission instead.
+                disposition = AuditDisposition.ACCEPT_PREVIEW
+                recommendation = "accept_preview"
+                requires_confirmation = False
             effect = next((item.effect_if_rejected for item in group if item.effect_if_rejected), None)
+            if requires_confirmation and not effect:
+                effect = _specific_impact(
+                    group[0].category,
+                    group[0].suggested_correction,
+                    language,
+                    operation=operation,
+                )
             topics.append(AuditTopic(
                 id=f"audit_topic_{digest}",
                 title=title,
-                summary="；".join(item.summary for item in group),
+                summary=_display_excerpt("；".join(_unique(item.summary for item in group))) or title,
                 finding_ids=[item.id for item in group],
                 impact=high_risk,
                 confidence=min(item.confidence for item in group),
@@ -1331,6 +1518,9 @@ corrections, not a complete summary.
                 evidence_snippets=_unique(
                     evidence for item in group for evidence in item.evidence_snippets
                 )[:3],
+                source_message_ids=_unique(
+                    source_id for item in group for source_id in item.source_message_ids
+                )[:20],
                 task_relation=relation,
                 operation=operation,
                 current_summary_text=current,
@@ -1427,30 +1617,59 @@ corrections, not a complete summary.
                     f"Should the compaction specially preserve “{topic.title}”?",
                 )
                 recommendation = "keep" if topic.recommended_action == "keep" else "drop"
+            proposed = topic.proposed_text
+            reason = topic.effect_if_rejected or ""
+            # A Review question must show the complete value that the selected
+            # action can write.  Never fall back to a topic summary or a
+            # truncated provider string here.
+            if not proposed or not reason:
+                continue
             current = topic.current_summary_text or _localized(
                 language,
                 "当前摘要未提及。",
                 "The current preview does not mention it.",
             )
-            proposed = topic.proposed_text or topic.suggested_correction or topic.summary
-            reason = topic.effect_if_rejected or _localized(
-                language,
-                "这是来源明确的内容，是否特别保留会影响后续任务的可用上下文。",
-                "This is source-backed context, and the choice affects what remains useful after compaction.",
-            )
+            topic_summary = topic.summary if topic.summary.casefold() != proposed.casefold() else ""
+            if topic.operation == AuditOperation.REPLACE:
+                context = _localized(
+                    language,
+                    f"当前摘要：{current}"
+                    + (f"\n\n主题概览：{topic_summary}" if topic_summary else "")
+                    + f"\n\n建议修改为：{proposed}\n\n这不是完整原始对话，只会写入这条完整结论。",
+                    f"Current summary: {current}"
+                    + (f"\n\nTopic context: {topic_summary}" if topic_summary else "")
+                    + "\n\nSuggested replacement: "
+                    + f"{proposed}\n\nThis is not the full original conversation; "
+                    + "only this complete conclusion can be written.",
+                )
+            elif topic.operation == AuditOperation.ADD:
+                context = _localized(
+                    language,
+                    "当前摘要未提及。"
+                    + (f"\n\n主题概览：{topic_summary}" if topic_summary else "")
+                    + f"\n\n建议补充：{proposed}\n\n这不是完整原始对话，只会追加这条完整结论。",
+                    "The current preview does not mention it."
+                    + (f"\n\nTopic context: {topic_summary}" if topic_summary else "")
+                    + "\n\nSuggested addition: "
+                    + f"{proposed}\n\nThis is not the full original conversation; "
+                    + "only this complete conclusion can be added.",
+                )
+            else:
+                context = _localized(
+                    language,
+                    (f"主题概览：{topic_summary}\n\n" if topic_summary else "")
+                    + f"建议保留的结论：{proposed}\n\n这不是完整原始对话，只会保留这条完整结论。",
+                    (f"Topic context: {topic_summary}\n\n" if topic_summary else "")
+                    + f"Conclusion to preserve: {proposed}\n\nThis is not the full original conversation; "
+                    + "only this complete conclusion can be preserved.",
+                )
             questions.append(
                 ReviewQuestion(
                     id=f"question_{topic.id.removeprefix('audit_topic_')}",
                     topic_id=topic.id,
                     title=topic.title,
                     question=question_text,
-                    context=_localized(
-                        language,
-                        f"主题说明：{topic.summary}\n\n当前摘要：{current}\n\n建议写入：{proposed}\n\n这部分不是完整原始对话，只会保留关键结论。",
-                        f"Topic: {topic.summary}\n\nCurrent summary: {current}\n\n"
-                        f"Proposed text: {proposed}\n\n"
-                        "This is not the full original conversation; only the key conclusion is preserved.",
-                    ),
+                    context=context,
                     why_it_matters=reason,
                     recommendation=recommendation,
                     options=[
@@ -1466,6 +1685,7 @@ corrections, not a complete summary.
                         ),
                     ],
                     evidence_snippets=topic.evidence_snippets[:3],
+                    source_message_ids=topic.source_message_ids[:20],
                     task_relation=topic.task_relation,
                     operation=topic.operation,
                     current_summary_text=topic.current_summary_text,

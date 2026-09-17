@@ -114,7 +114,11 @@ class ConversationMessage(BaseModel):
         if isinstance(value, list):
             parts: list[str] = []
             for block in value:
-                if isinstance(block, dict) and isinstance(block.get("text"), str):
+                if (
+                    isinstance(block, dict)
+                    and block.get("type") in {"text", "input_text", "output_text"}
+                    and isinstance(block.get("text"), str)
+                ):
                     parts.append(block["text"])
                 elif isinstance(block, str):
                     parts.append(block)
@@ -261,6 +265,7 @@ class AuditTopic(BaseModel):
     ] = "accept_preview"
     suggested_correction: str | None = None
     evidence_snippets: list[str] = Field(default_factory=list, max_length=3)
+    source_message_ids: list[str] = Field(default_factory=list, max_length=20)
     task_relation: Literal["primary", "related", "background"] = "related"
     operation: Literal["add", "replace", "keep_preview"] = "add"
     current_summary_text: str | None = Field(default=None, max_length=MAX_DISPLAY_TEXT_CHARS)
@@ -295,6 +300,7 @@ class ReviewQuestion(BaseModel):
     options: list[ReviewOption] = Field(min_length=2, max_length=2)
     # Exact source excerpts are shown separately from the localized question.
     evidence_snippets: list[str] = Field(default_factory=list, max_length=3)
+    source_message_ids: list[str] = Field(default_factory=list, max_length=20)
     task_relation: Literal["primary", "related", "background"] = "related"
     operation: Literal["add", "replace", "keep_preview"] = "add"
     current_summary_text: str | None = Field(default=None, max_length=MAX_DISPLAY_TEXT_CHARS)

@@ -88,6 +88,7 @@ export type AuditTopic = {
   recommended_action: "keep" | "drop" | "correct" | "accept_preview" | "add" | "keep_preview";
   suggested_correction?: string | null;
   evidence_snippets?: string[];
+  source_message_ids?: string[];
   task_relation?: "primary" | "related" | "background";
   operation?: "add" | "replace" | "keep_preview";
   current_summary_text?: string | null;
@@ -112,6 +113,7 @@ export type ReviewQuestion = {
   recommendation: "keep" | "drop" | "correct" | "keep_preview" | "add";
   options: ReviewOption[];
   evidence_snippets?: string[];
+  source_message_ids?: string[];
   task_relation?: "primary" | "related" | "background";
   operation?: "add" | "replace" | "keep_preview";
   current_summary_text?: string | null;

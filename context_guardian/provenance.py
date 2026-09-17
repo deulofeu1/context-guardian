@@ -30,6 +30,33 @@ _MACHINE_PAYLOAD = re.compile(
     r"^\s*[\[{].*[\]}]\s*$|\"(?:id|type|arguments|payload|request_id|metadata)\"\s*:",
     re.I | re.S,
 )
+_SOURCE_ENVELOPE = re.compile(
+    r"</?(?:path|type|content|file|document|json|xml)>|"
+    r"\"(?:path|type|content|file|document)\"\s*:\s*|"
+    r"\b(?:path|file|document)\s*:\s*[^\s]+\s+(?:type|content)\s*:\s*",
+    re.I,
+)
+_DIAGNOSTIC_ANALYSIS = re.compile(
+    r"\bREASONING[_ ]EFFORTS\b|"
+    r"\b(?:chain[- ]of[- ]thought|hidden reasoning|model reasoning|reasoning trace)\b|"
+    r"\b(?:crash sites?|source(?:-| )code inventory|function(?:s)? list|call sites?)\b|"
+    r"\b(?:the branch that ran|that explains the (?:pop|failure|crash))\b|"
+    r"(?:推理过程|思考过程|源码清单|函数清单|调用链|分析过程)",
+    re.I,
+)
+_EXPLICIT_DURABLE_DECISION = re.compile(
+    r"\b(?:decided|decision|must|require|required|selected|chosen|adopt(?:ed)?|"
+    r"disable(?:d)?|turn(?:ed)?\s+off|keep|preserve)\b.{0,100}\b(?:reasoning|thinking|"
+    r"audit|output|json)\b|"
+    r"(?:结构化审计|审计).{0,80}(?:关闭|禁用|保留|必须|决定).{0,40}(?:reasoning|思考|输出|JSON|json)|"
+    r"(?:明确|决定|必须|约束|保留).{0,60}(?:排障结论|诊断结论|推理配置)",
+    re.I,
+)
+_EXPLICIT_DIAGNOSTIC_PREFERENCE = re.compile(
+    r"\b(?:preserve|keep|record|remember).{0,80}\b(?:diagnostic|debugging|排障|诊断)\b|"
+    r"(?:保留|记录|记住).{0,80}(?:排障|诊断)(?:结论|信息)?",
+    re.I,
+)
 _ATTACHMENT_METADATA = re.compile(
     r"(?:image|attachment|document|file)\s+(?:metadata|probe|inspection|解包|探测)|"
     r"(?:mime[- ]type|dimensions?|解包结果|图片元数据|附件元数据)",
@@ -70,6 +97,22 @@ def normalize_evidence_text(value: object) -> str:
     return re.sub(r"\s+", " ", text).strip().casefold()
 
 
+def is_diagnostic_background(content: str) -> bool:
+    """Return whether text is implementation diagnosis rather than a task fact.
+
+    Diagnostic material can still be retained as traceable source evidence, but
+    it must not become the primary Review text or a durable fact by accident.
+    Explicit user decisions about the diagnostic configuration are exempt.
+    """
+
+    value = str(content or "").strip()
+    if not value:
+        return True
+    if _EXPLICIT_DURABLE_DECISION.search(value) or _EXPLICIT_DIAGNOSTIC_PREFERENCE.search(value):
+        return False
+    return bool(_DIAGNOSTIC_ANALYSIS.search(value) or _SOURCE_ENVELOPE.search(value))
+
+
 def is_execution_noise(content: str) -> bool:
     """Return whether text is mechanical execution or internal metadata."""
 
@@ -85,6 +128,8 @@ def is_execution_noise(content: str) -> bool:
         or _MACHINE_PAYLOAD.search(value)
         or _ATTACHMENT_METADATA.search(value)
         or _UUID.search(value)
+        or _SOURCE_ENVELOPE.search(value)
+        or is_diagnostic_background(value)
     ):
         return True
     # Issue #9's exact false-positive text is planning metadata, not document

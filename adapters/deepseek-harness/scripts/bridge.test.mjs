@@ -92,6 +92,37 @@ test("DeepSeek message normalization keeps stable ids and tool errors", () => {
   assert.equal(messages[1].is_error, true);
 });
 
+test("DeepSeek normalization excludes reasoning, tool calls, and unknown wrappers from evidence", () => {
+  const messages = normalizeDeepSeekMessages(undefined, [
+    {
+      id: "mixed",
+      role: "assistant",
+      source: { kind: "model" },
+      content: [
+        { type: "reasoning", text: "hidden chain of thought" },
+        { type: "text", text: "The API must remain compatible." },
+        { type: "json", path: "/tmp/diagnostic.json", payload: { raw: true } },
+      ],
+    },
+    {
+      id: "reasoning-only",
+      role: "assistant",
+      source: { kind: "model" },
+      content: [{ type: "reasoning", text: "hidden only" }],
+    },
+    {
+      id: "tool-call",
+      role: "assistant",
+      content: [{ type: "tool-call", name: "grep", arguments: { pattern: "OAuth" } }],
+    },
+  ]);
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].content, "The API must remain compatible.");
+  assert.equal(messages[0].content.includes("hidden"), false);
+  assert.equal(messages[0].content.includes("diagnostic.json"), false);
+  assert.equal(messages[0].metadata.reasoning_block_count, 1);
+});
+
 test("DeepSeek normalization excludes plugin planning metadata from evidence", () => {
   const messages = normalizeDeepSeekMessages(undefined, [
     {
@@ -166,8 +197,9 @@ test("DeepSeek review UI separates localized summary from verbatim source eviden
   });
   assert.equal(questions.length, 1);
   assert.match(questions[0].detail, /该适配器应保持可选/);
-  assert.match(questions[0].detail, /Source evidence \(verbatim, for verification\)/);
+  assert.match(questions[0].detail, /来源证据（原文，仅用于核对）/);
   assert.match(questions[0].detail, /The adapter should remain optional/);
+  assert.equal(questions[0].detail.includes("压缩后是否需要特别保留这个主题？"), false);
 });
 
 test("DeepSeek review path invokes the host question capability when a question exists", async () => {

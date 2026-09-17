@@ -45,13 +45,12 @@ export function normalizeDeepSeekMessages(_system, messages) {
         const sourceKind = message.source?.kind;
         const role = sourceKind === "tool" ? "tool" : String(message.role ?? "unknown");
         const blocks = Array.isArray(message.content) ? message.content : [message.content];
+        const reasoningBlockCount = blocks.filter((block) => block?.type === "reasoning").length;
         const content = blocks.map((block) => {
             if (typeof block === "string")
                 return block;
-            if (block?.type === "text" || block?.type === "reasoning")
+            if (block?.type === "text")
                 return String(block.text ?? "");
-            if (block?.type === "tool-call")
-                return `Tool call ${String(block.name ?? "")}: ${String(block.arguments ?? "")}`;
             if (block?.type === "tool-result") {
                 const inner = Array.isArray(block.content) ? block.content : [];
                 return inner.map((item) => item?.type === "text" ? String(item.text ?? "") : "").join("\n");
@@ -92,7 +91,13 @@ export function normalizeDeepSeekMessages(_system, messages) {
             content,
             id: String(message.id ?? `dsh_message_${String(index + 1).padStart(4, "0")}`),
             is_error: error,
-            metadata: { source: sourceKind },
+            metadata: {
+                source: sourceKind,
+                block_types: blocks.map((block) => String(block?.type ?? (typeof block === "string" ? "text" : "unknown"))),
+                reasoning_block_count: reasoningBlockCount,
+                unknown_block_count: blocks.filter((block) => typeof block !== "string"
+                    && !["text", "reasoning", "tool-call", "tool-result"].includes(String(block?.type ?? ""))).length,
+            },
             provenance,
         });
     }

@@ -69,12 +69,17 @@ export function pythonEnvironment(
 function serializeMessage(message: any, index: number): GuardianMessage {
   const rawRole = String(message.role ?? "unknown");
   const role = rawRole === "toolResult" || rawRole === "tool_result" ? "tool" : rawRole;
-  const content = typeof message.content === "string"
-    ? message.content
-    : typeof message.summary === "string"
-      ? message.summary
-      : JSON.stringify(message.content ?? message.output ?? "");
   const blocks = Array.isArray(message.content) ? message.content : [];
+  const textBlocks: Array<{ type: string; text: string }> = typeof message.content === "string"
+    ? [{ type: "text", text: message.content }]
+    : blocks.flatMap((block: any) => (
+      block?.type === "text" && typeof block.text === "string"
+        ? [{ type: "text", text: block.text }]
+        : []
+    ));
+  const content = textBlocks.map((block) => block.text).filter(Boolean).join("\n").trim()
+    || (typeof message.summary === "string" ? message.summary.trim() : "")
+    || (typeof message.output === "string" ? message.output.trim() : "");
   const hasToolCall = blocks.some((block: any) => block?.type === "toolCall" || block?.type === "tool-call");
   let provenance: MessageProvenance;
   if (rawRole === "user") {
@@ -109,6 +114,10 @@ function serializeMessage(message: any, index: number): GuardianMessage {
     metadata: {
       pi_role: rawRole,
       custom_type: message.customType,
+      pi_block_types: blocks.map((block: any) => String(block?.type ?? "unknown")),
+      pi_unknown_block_count: blocks.filter(
+        (block: any) => block?.type !== "text" && block?.type !== "toolCall" && block?.type !== "tool-call",
+      ).length,
     },
     provenance,
   };

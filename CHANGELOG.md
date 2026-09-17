@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.4.2 - 2026-09-17 (Issue #23 review-dialog grounding)
+
+- Removed raw reasoning traces, source inventories, paths, XML/JSON wrappers, and
+  other diagnostics from the Pi and DeepSeek Harness review surface.
+- Kept only text blocks from host messages and excluded hidden reasoning and tool
+  call payloads from audit evidence.
+- Replaced generic/repeated review detail with one overview, concrete topic context,
+  complete proposed text, traceable source IDs, and localized labels.
+- Refused to write truncated conclusions and fail-closed when approved write text
+  changes during source revalidation.
+- Tightened contradictory-preview matching so generic progress words such as
+  “completed” cannot turn an unrelated unfinished file TODO into a replacement.
+- Added the Issue #23 fixture and regression coverage for unresolved completion status,
+  bounded review, provenance, and both adapter normalizers.
+
 ## 0.4.1 - 2026-09-17 (Issue #21 long preview target safety)
 
 - Fixed long contradictory Markdown bullets crashing `audit_preview` through the 500-character UI field limit.

@@ -27,11 +27,11 @@ dsh plugin --profile web add context-guardian-deepseek-harness
 
 The adapter and Python core share a versioned bridge contract and must stay on
 the same `0.4.x` release line. Pin both sides when reproducing a published setup;
-for example, the `0.4.1` pair is:
+for example, the `0.4.2` pair is:
 
 ```bash
-python3 -m pip install "context-guardian-core==0.4.1"
-dsh plugin --profile web add context-guardian-deepseek-harness@0.4.1
+python3 -m pip install "context-guardian-core==0.4.2"
+dsh plugin --profile web add context-guardian-deepseek-harness@0.4.2
 ```
 
 If an older core does not recognize an operation used by the adapter, the
@@ -135,7 +135,7 @@ run the same fixture in live mode:
 
 ```bash
 CONTEXT_GUARDIAN_DSH_LIVE=1 \
-CONTEXT_GUARDIAN_FIXTURE_PACKAGE=context-guardian-deepseek-harness@0.4.1 \
+CONTEXT_GUARDIAN_FIXTURE_PACKAGE=context-guardian-deepseek-harness@0.4.2 \
 npm run dsh-fixture-smoke
 ```
 
