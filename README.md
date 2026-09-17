@@ -23,7 +23,7 @@ Auto Correct / Accept Preview
   ↓
 At most 3 Topic Questions
   ↓
-Deterministic Reviewed Facts Appendix
+Exact Summary Edits + Reviewed Facts Appendix
   ↓
 One Native Compaction Commit
 ```
@@ -79,13 +79,13 @@ dsh plugin --profile web add context-guardian-deepseek-harness
 ```
 
 The DeepSeek Harness adapter and Python core share a versioned bridge contract.
-Keep them on the same `0.3.x` release line; do not upgrade the npm adapter while
+Keep them on the same `0.4.x` release line; do not upgrade the npm adapter while
 leaving an older Python core installed. For a reproducible installation, pin the
 core to the adapter's published version, for example:
 
 ```bash
-python3 -m pip install "context-guardian-core==0.3.5"
-dsh plugin --profile web add context-guardian-deepseek-harness@0.3.5
+python3 -m pip install "context-guardian-core==0.4.0"
+dsh plugin --profile web add context-guardian-deepseek-harness@0.4.0
 ```
 
 If a bridge operation is unsupported, the adapter now includes the underlying
@@ -126,7 +126,7 @@ context-guardian verify examples/conversation.json
 
 `verify` is a deterministic release smoke test. It needs no model or API key and
 checks native-preview audit corrections, noise removal, stable IDs, bounded questions,
-and the append-only Reviewed Facts result. It is a fast core check, not a replacement for the interactive
+and the safe summary-edit / Reviewed Facts result. It is a fast core check, not a replacement for the interactive
 Pi/DSH fixture tests.
 
 For the source Pi workflow, use the interactive fixture from a checkout:
@@ -136,7 +136,8 @@ npm run pi-fixture-smoke
 ```
 
 It opens Pi with a pre-seeded long conversation and lets you manually choose
-Keep/Drop. To load the source extension in an existing Pi session, see
+explicit actions such as Apply correction / Keep current summary or Keep/Drop.
+To load the source extension in an existing Pi session, see
 [`adapters/pi/README.md`](adapters/pi/README.md).
 
 For source development or release verification, install the local adapter into the
@@ -147,7 +148,7 @@ dsh plugin --profile web add "$PWD/adapters/deepseek-harness"
 ```
 
 Inside Pi, the adapter asks Pi for one native Preview, audits it with the current host
-model, and appends deterministic Reviewed Facts after review. No second API key is
+model, applies only exact source-backed corrections, and adds deterministic Reviewed Facts after review. No second API key is
 required. The Python process never receives those credentials.
 The published adapter is tested against Pi `0.82.1` and Node.js `22.19.0+`.
 
@@ -159,7 +160,7 @@ dsh plugin --profile web add /absolute/path/to/ContextGuardian/adapters/deepseek
 
 This adapter decorates DeepSeek Harness's native `dsh-compaction-basic` backend.
 It lets Harness produce one Preview, audits it through the active `ctx.llm` route,
-asks at most three topic questions, and appends one deterministic Reviewed Facts
+asks at most three topic questions, applies only exact source-backed corrections, and adds one deterministic Reviewed Facts
 block to the native result. Harness remains responsible for session persistence and the compaction
 transaction. Web sessions use the selected agent preset, so the preset must contain
 the Context Guardian compaction row.
@@ -179,8 +180,9 @@ mechanical errors are excluded from the review surface.
 ## Modes
 
 - Rules mode is local, deterministic, conservative, and the default for the CLI.
-- Native adapters produce exactly one host Preview, then audit it; automatic corrections
-  and confirmed topic decisions become a deterministic append-only Reviewed Facts block.
+- Native adapters produce exactly one host Preview, then audit it; confirmed status corrections
+  use exact unique replacements, while additions and retained topics become a deterministic
+  Reviewed Facts block. No full conversation is copied into the summary.
 - The default review budget is three topic questions and can be lowered with
   `CONTEXT_GUARDIAN_MAX_REVIEW_QUESTIONS=0..3`. Zero disables questions and uses
   conservative no-UI resolution.
@@ -292,7 +294,7 @@ npm run pi-fixture-smoke
 
 It creates a temporary Pi session containing a pre-seeded, sufficiently large
 conversation, opens the Pi UI, and lets you run `/compact` and manually choose
-Keep/Drop for uncertain topics. This means nobody needs to spend time creating a
+Apply correction / Keep current summary or Keep/Drop for uncertain topics. This means nobody needs to spend time creating a
 long real conversation just to validate the adapter. The fixture uses the current Pi
 model and authentication, so log in to Pi first if necessary. If the Python core is
 outside the repository virtual environment, set `CONTEXT_GUARDIAN_PYTHON` explicitly.
@@ -317,7 +319,7 @@ enters the Python process:
 
 ```bash
 CONTEXT_GUARDIAN_DSH_LIVE=1 \
-CONTEXT_GUARDIAN_FIXTURE_PACKAGE=context-guardian-deepseek-harness@0.3.5 \
+CONTEXT_GUARDIAN_FIXTURE_PACKAGE=context-guardian-deepseek-harness@0.4.0 \
 npm run dsh-fixture-smoke
 ```
 

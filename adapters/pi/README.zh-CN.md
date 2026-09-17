@@ -42,11 +42,11 @@ npm run pi-fixture-smoke
 
 ```text
 Pi 原生 Preview → Context Guardian 审计 → 自动修正 / 最多 3 个主题问题
-→ 确定性 Reviewed Facts 附录 → Pi 原生 compaction 提交
+→ 精确状态修正或确定性 Reviewed Facts 附录 → Pi 原生 compaction 提交
 ```
 
-适配器每次只调用一次原生 compaction，将 Reviewed Facts 追加到该 Preview，不修改
-Pi 的其他元数据，也不调用第二次模型。Preview 成功后，如果审计、UI 或事实生成
+适配器每次只调用一次原生 compaction。用户选择“采用修正”时，只替换唯一且来源明确的
+当前摘要文本；新增内容才写入 Reviewed Facts，不修改 Pi 的其他元数据，也不调用第二次模型。Preview 成功后，如果审计、UI 或事实生成
 失败，则返回这个 Preview；第一次原生调用失败时才交回 Pi 原生 fallback。这是
 实验性能力，不保证一定改善摘要或 Agent 表现。
 
@@ -84,7 +84,7 @@ npm run pi-smoke
 ```
 
 完整 fixture 会创建一段预置的长对话，打开 Pi UI，并让你手动选择不超过 3 个主题
-的 Keep/Drop；不需要先进行很长的真实对话。它会验证原生 Preview、模型审计、UI、
+的“采用修正 / 保持当前摘要”或 Keep/Drop；不需要先进行很长的真实对话。它会验证原生 Preview、模型审计、UI、
 确定性 Reviewed Facts 追加和原生 compaction。Pi 需要已经登录，因为适配器会复用当前宿主模型。
 
 ## 本地开发

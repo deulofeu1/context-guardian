@@ -72,7 +72,7 @@ class ContextGuardianAdapter(Protocol):
         answers: Sequence[dict],
         messages: Sequence[ConversationMessage] = (),
     ) -> PreviewFinalization:
-        """Return an append-only finalization while preserving the native Preview."""
+        """Return exact source-backed edits plus reviewed facts for the native Preview."""
 
     def review(self, candidates: Sequence[MemoryCandidate]) -> Sequence[ReviewDecision]:
         """Resolve uncertain candidates through the host's review surface."""

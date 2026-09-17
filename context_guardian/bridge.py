@@ -47,6 +47,7 @@ def handle_request(request: dict[str, Any], *, input_stream: TextIO, output_stre
         "audit_preview",
         "revision_guidance",
         "build_reviewed_facts",
+        "finalize_preview",
     }:
         raise ValueError("unsupported operation")
 
@@ -89,6 +90,16 @@ def handle_request(request: dict[str, Any], *, input_stream: TextIO, output_stre
             messages=request.get("messages", []),
         )
         return {"result": appendix.model_dump(mode="json")}
+
+    if operation == "finalize_preview":
+        plan = ReviewPlan.model_validate(request.get("review_plan", {}))
+        finalization = guardian.finalize_preview(
+            preview=str(request.get("preview", "")),
+            review_plan=plan,
+            answers=request.get("answers", []),
+            messages=request.get("messages", []),
+        )
+        return {"result": finalization.model_dump(mode="json")}
 
     candidates = [MemoryCandidate.model_validate(candidate) for candidate in request.get("candidates", [])]
     decisions = request.get("decisions", [])

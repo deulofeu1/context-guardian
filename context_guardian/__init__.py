@@ -16,6 +16,8 @@ from .models import (
     AuditDisposition,
     AuditFinding,
     AuditIssueType,
+    AuditOperation,
+    AuditTaskRelation,
     AuditTopic,
     CandidateCategory,
     CompactionGuidance,
@@ -25,6 +27,7 @@ from .models import (
     MemoryCandidate,
     MessageProvenance,
     MessageSourceKind,
+    PreviewEdit,
     PreviewFinalization,
     ReviewAction,
     ReviewDecision,
@@ -45,7 +48,7 @@ from .reviewed_facts import (
 )
 from .verification import verify_conversation, verify_file
 
-__version__ = "0.3.5"
+__version__ = "0.4.0"
 
 __all__ = [
     "CandidateCategory",
@@ -55,6 +58,8 @@ __all__ = [
     "AuditInput",
     "AuditInputBuilder",
     "AuditIssueType",
+    "AuditOperation",
+    "AuditTaskRelation",
     "AuditTopic",
     "ContextGuardian",
     "ConversationMessage",
@@ -75,6 +80,7 @@ __all__ = [
     "ReviewedFact",
     "ReviewedFactsAppendix",
     "PreviewFinalization",
+    "PreviewEdit",
     "ReviewPolicy",
     "RuleBasedInspector",
     "build_guidance",

@@ -35,6 +35,15 @@ class RuleBasedInspector:
 
     _high_signal_patterns: tuple[tuple[re.Pattern[str], CandidateCategory], ...] = (
         (
+            re.compile(
+                r"(not verified|unverified|not tested|did not appear|didn't appear|"
+                r"not shown|not completed|still pending|current status|未验证|未测试|"
+                r"未弹窗|没有弹窗|尚未|还没|仍未|未完成|停在|状态)",
+                re.I,
+            ),
+            CandidateCategory.WORKING_STATE,
+        ),
+        (
             re.compile(r"\b(must|need to|required|requirement|不能|必须|要求)\b", re.I),
             CandidateCategory.CONSTRAINT,
         ),

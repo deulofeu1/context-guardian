@@ -257,3 +257,74 @@ def test_bridge_build_reviewed_facts_is_deterministic_and_does_not_call_revision
     assert response["result"]["version"] == "1"
     assert response["result"]["facts"][0]["origin"] == "auto_correction"
     assert "PostgreSQL" in response["result"]["text"]
+
+
+def test_bridge_finalizes_exact_status_correction():
+    request = {
+        "protocol_version": 1,
+        "type": "request",
+        "request_id": "request-finalize",
+        "operation": "finalize_preview",
+        "preview": "The verification is complete.",
+        "review_plan": {
+            "language": "en",
+            "findings": [{
+                "id": "finding-status",
+                "issue_type": "incorrect",
+                "category": "working_state",
+                "summary": "Verification was not shown.",
+                "why_it_matters": "The status affects release confidence.",
+                "suggested_correction": "Verification was not shown.",
+                "importance": 0.9,
+                "confidence": 0.9,
+                "source_message_ids": ["status"],
+                "evidence_snippets": ["Verification was not shown."],
+                "task_relation": "primary",
+                "operation": "replace",
+                "requires_user_confirmation": True,
+                "current_summary_text": "The verification is complete.",
+            }],
+            "audit_topics": [{
+                "id": "topic-status",
+                "title": "Verification status",
+                "summary": "The verification status may be wrong.",
+                "finding_ids": ["finding-status"],
+                "impact": 0.9,
+                "confidence": 0.9,
+                "relevance_to_main_goal": 1,
+                "requires_user_preference": True,
+                "disposition": "ask_user",
+                "recommended_action": "correct",
+                "operation": "replace",
+                "current_summary_text": "The verification is complete.",
+                "proposed_text": "Verification was not shown.",
+            }],
+            "review_questions": [{
+                "id": "question-status",
+                "topic_id": "topic-status",
+                "title": "Verification status",
+                "question": "Apply correction?",
+                "context": "Current and proposed text.",
+                "why_it_matters": "The status matters.",
+                "recommendation": "correct",
+                "operation": "replace",
+                "options": [
+                    {"id": "correct", "label": "Apply", "description": "Apply."},
+                    {"id": "keep_preview", "label": "Keep", "description": "Keep."},
+                ],
+            }],
+        },
+        "answers": [{"question_id": "question-status", "action": "correct"}],
+        "messages": [{
+            "id": "status",
+            "role": "user",
+            "content": "Verification was not shown.",
+        }],
+    }
+    output_stream = io.StringIO()
+    run_protocol(io.StringIO(json.dumps(request) + "\n"), output_stream)
+    response = json.loads(output_stream.getvalue())
+    assert response["ok"] is True
+    result = response["result"]
+    assert result["final_summary"] == "Verification was not shown."
+    assert result["edits"][0]["status"] == "applied"

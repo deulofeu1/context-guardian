@@ -1,6 +1,6 @@
 import type { Context } from "@deepseek-ai/cordis";
 import type { Agent } from "@deepseek-ai/dsh-agent";
-import type { Guidance, GuardianMessage, InspectionResult, MemoryCandidate, ReviewPlan, ReviewedFactsAppendix } from "./types.js";
+import type { Guidance, GuardianMessage, InspectionResult, MemoryCandidate, ReviewPlan, ReviewedFactsAppendix, PreviewFinalization } from "./types.js";
 export type GuardianBridgeErrorCode = "spawn" | "timeout" | "aborted" | "protocol" | "process_exit";
 export declare class GuardianBridgeError extends Error {
     readonly code: GuardianBridgeErrorCode;
@@ -27,6 +27,11 @@ export declare class GuardianBridge {
         topic_id: string;
         action: "keep" | "drop";
     }>, messages: GuardianMessage[], signal: AbortSignal): Promise<ReviewedFactsAppendix>;
+    finalizePreview(ctx: Context, agent: Agent, reviewPlan: ReviewPlan, answers: Array<{
+        question_id: string;
+        topic_id: string;
+        action: "keep" | "drop" | "correct" | "keep_preview" | "add";
+    }>, preview: string, messages: GuardianMessage[], signal: AbortSignal): Promise<PreviewFinalization>;
     private request;
 }
 //# sourceMappingURL=bridge.d.ts.map

@@ -37,8 +37,10 @@ Pi native Preview → Context Guardian Audit → auto correction / max 3 topic q
 → deterministic Reviewed Facts appendix → Pi native compaction commit
 ```
 
-The adapter makes exactly one native compaction call. It appends Reviewed Facts to
-that Preview without changing Pi's metadata or invoking a second model call. If
+The adapter makes exactly one native compaction call. It can replace an exact unique
+source-backed status sentence after the user chooses “Apply correction”, or append
+Reviewed Facts for additions. It does not change Pi's metadata or invoke a second
+model call. If
 audit, UI, or fact generation fails after a successful Preview, that Preview is
 returned. If the first native call fails, the hook returns control to Pi's native
 fallback. This is
@@ -87,7 +89,8 @@ npm run pi-fixture-smoke
 ```
 
 The script creates a temporary session with a pre-seeded long conversation, opens Pi,
-and lets you run `/compact` and manually choose Keep/Drop for bounded topics. It
+and lets you run `/compact` and manually choose Apply correction / Keep current summary
+or Keep/Drop for bounded topics. It
 exercises the actual native Preview, host-model audit, review UI, deterministic
 Reviewed Facts append, and native compaction flow without requiring a user to first conduct a long
 conversation. Pi must be authenticated because the adapter reuses the current host

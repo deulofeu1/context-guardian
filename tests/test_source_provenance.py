@@ -106,6 +106,39 @@ def test_provider_accepts_only_request_local_source_grounded_findings():
     assert plan.auto_corrections == ["PostgreSQL is the selected database."]
 
 
+def test_provider_cannot_silently_auto_correct_primary_unresolved_status():
+    source = "原生 0.3.3 测试没有出现 Review 弹窗，因此验证尚未完成。"
+    provider = StaticAuditProvider(
+        ReviewPlan(
+            language="zh-CN",
+            findings=[
+                finding(
+                    source_id="status",
+                    evidence=source,
+                    category="important_fact",
+                )
+            ],
+        )
+    )
+    plan = ContextGuardian(provider=provider).audit_preview(
+        [{"id": "status", "role": "user", "content": source}],
+        preview="原生 0.3.3 测试与最终校验已完成。",
+        language="zh-CN",
+    )
+
+    finding_result = plan.findings[0]
+    assert finding_result.category == "working_state"
+    assert finding_result.task_relation == "primary"
+    assert finding_result.issue_type == "incorrect"
+    assert finding_result.operation == "replace"
+    assert finding_result.requires_user_confirmation is True
+    assert plan.review_questions[0].title == "测试验证状态可能不正确"
+    assert [option.id for option in plan.review_questions[0].options] == [
+        "correct",
+        "keep_preview",
+    ]
+
+
 def test_provider_evidence_must_match_source_and_arbitrary_correction_is_ignored():
     messages = [{"id": "goal", "role": "user", "content": "Implement OAuth without changing the public API."}]
     provider = StaticAuditProvider(
@@ -182,7 +215,10 @@ def test_provider_review_question_is_honored_after_finding_grounding():
 
     assert len(plan.review_questions) == 1
     assert plan.review_questions[0].topic_id == plan.audit_topics[0].id
-    assert plan.findings[0].issue_type == "ambiguous"
+    # User confirmation is independent from the factual discrepancy type:
+    # this is missing source context, not an "ambiguous" preview state.
+    assert plan.findings[0].issue_type == "missing"
+    assert plan.findings[0].requires_user_confirmation is True
     assert "应保持适配器可选" in plan.review_questions[0].context
     assert "optional adapter discussion" in plan.review_questions[0].context
     assert plan.review_questions[0].evidence_snippets == [

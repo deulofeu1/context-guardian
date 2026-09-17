@@ -23,7 +23,7 @@ Keep/Drop 决策变得可检查。
   ↓
 最多 3 个主题问题
   ↓
-确定性 Reviewed Facts 附录
+精确摘要修正 + 确定性 Reviewed Facts 附录
   ↓
 一次原生 Compaction 提交
 ```
@@ -74,12 +74,12 @@ dsh plugin --profile web add context-guardian-deepseek-harness
 ```
 
 DeepSeek Harness 适配器与 Python 核心共用带版本的 bridge 合同，必须保持在同一条
-`0.3.x` 发布线上；不要只升级 npm 适配器而保留旧的 Python 核心。为保证安装可复现，
+`0.4.x` 发布线上；不要只升级 npm 适配器而保留旧的 Python 核心。为保证安装可复现，
 请将核心固定为适配器对应的已发布版本，例如：
 
 ```bash
-python3 -m pip install "context-guardian-core==0.3.5"
-dsh plugin --profile web add context-guardian-deepseek-harness@0.3.5
+python3 -m pip install "context-guardian-core==0.4.0"
+dsh plugin --profile web add context-guardian-deepseek-harness@0.4.0
 ```
 
 如果 bridge 操作不受支持，适配器现在会把底层错误写入 warning，能够直接识别核心与
@@ -129,9 +129,9 @@ fixture 测试。
 npm run pi-fixture-smoke
 ```
 
-它会创建一段预置的长对话，打开 Pi UI，并让你手动选择不确定主题的 Keep/Drop，
+它会创建一段预置的长对话，打开 Pi UI，并让你手动选择“采用修正 / 保持当前摘要”或 Keep/Drop，
 所以不需要先进行很长的真实对话。适配器先调用 Pi 原生 compaction 生成未提交的
-Preview，再用当前模型审计，最后将确定性 Reviewed Facts 追加到 Preview；整个流程
+Preview，再用当前模型审计；用户确认的状态修正只替换唯一、来源明确的摘要文本，其他结论再写入确定性 Reviewed Facts；整个流程
 只调用一次原生 compaction。Python 子进程不会收到 API Key。Node.js 需要 `22.19.0+`，Pi 兼容范围
 是 `0.82.1`。
 
@@ -171,8 +171,9 @@ Reviewed Facts。模型可以通过 `display_summary` 提供易读或本地化�
 ## 工作模式
 
 - 规则模式：本地、确定性、保守，是 CLI 默认模式。
-- Native 适配器：只得到一次宿主 Preview，再进行语义审计；自动修正和确认的主题
-  以确定性 Reviewed Facts 附录追加，不调用第二次原生 compaction。
+- Native 适配器：只得到一次宿主 Preview，再进行语义审计；确认的状态修正只做精确
+  唯一替换，新增或保留的主题写入确定性 Reviewed Facts 附录，不复制完整原始对话，
+  也不调用第二次原生 compaction。
 - 默认最多询问 3 个主题问题，可用 `CONTEXT_GUARDIAN_MAX_REVIEW_QUESTIONS=0..3`
   调低；设为 0 表示不弹窗并采用保守处理。
 - OpenAI 模式：独立 CLI 的可选 Provider，需要时安装 `context-guardian-core[openai]` 并配置 Key。
@@ -245,7 +246,7 @@ npm run dsh-fixture-smoke
 
 ```bash
 CONTEXT_GUARDIAN_DSH_LIVE=1 \
-CONTEXT_GUARDIAN_FIXTURE_PACKAGE=context-guardian-deepseek-harness@0.3.5 \
+CONTEXT_GUARDIAN_FIXTURE_PACKAGE=context-guardian-deepseek-harness@0.4.0 \
 npm run dsh-fixture-smoke
 ```
 

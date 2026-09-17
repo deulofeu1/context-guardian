@@ -41,7 +41,11 @@ export function answersForNoUi(plan) {
     return plan.review_questions.map((question) => ({
         question_id: question.id,
         topic_id: question.topic_id,
-        action: question.recommendation,
+        action: question.operation === "replace"
+            ? "keep_preview"
+            : question.operation === "add"
+                ? "drop"
+                : question.recommendation,
     }));
 }
 export function reviewQuestionsForUi(plan) {
@@ -49,11 +53,11 @@ export function reviewQuestionsForUi(plan) {
         id: question.id,
         header: question.title,
         question: question.question,
-        detail: `${plan.overview}\n\n${question.context}\n\n${question.why_it_matters}`
+        detail: `${plan.overview}\n\n${question.question}\n\n${question.context}\n\nWhy it matters: ${question.why_it_matters}`
             + (question.evidence_snippets?.length
                 ? `\n\nSource evidence (verbatim, for verification):\n${question.evidence_snippets.join("\n")}`
                 : "")
-            + `\n\n${question.options.map((option) => `${option.label}: ${option.description}`).join("\n")}`,
+            + `\n\nThe full original conversation is not preserved.\n\n${question.options.map((option) => `${option.label}: ${option.description}`).join("\n")}`,
         options: question.options.map((option) => ({
             label: option.label,
             description: option.description,
@@ -132,6 +136,31 @@ function textFromSummary(result) {
         .join("\n")
         .trim();
 }
+export function applyFinalizationToSummary(summary, finalization) {
+    const blocks = summary.map((block) => ({ ...block }));
+    for (const edit of finalization.edits.filter((item) => item.status === "applied")) {
+        const candidates = blocks
+            .map((block, index) => ({ block, index }))
+            .filter(({ block }) => block.type === "text" && typeof block.text === "string" && block.text.includes(edit.target));
+        // Never apply an edit that spans blocks or has an ambiguous host match.
+        if (candidates.length !== 1)
+            continue;
+        candidates[0].block.text = candidates[0].block.text.replace(edit.target, edit.replacement);
+    }
+    if (finalization.appendix.text) {
+        const alreadyPresent = blocks.some((block) => typeof block.text === "string" && block.text.includes(finalization.appendix.text));
+        if (!alreadyPresent) {
+            const lastText = [...blocks].reverse().find((block) => block.type === "text");
+            if (lastText && typeof lastText.text === "string") {
+                lastText.text = `${lastText.text}\n\n${finalization.appendix.text}`;
+            }
+            else {
+                blocks.push({ type: "text", text: finalization.appendix.text });
+            }
+        }
+    }
+    return blocks;
+}
 /**
  * Decorates the native DeepSeek Harness compactor. The native engine owns the
  * single transaction; this override only performs an uncommitted preview,
@@ -170,25 +199,24 @@ export class ContextGuardianCompactionEngine extends BasicCompactionEngine {
             this.ctx.logger.warn(uiMessageWithError(uiLanguage, "reviewCancelled", error));
             return preview;
         }
-        let appendix;
+        let finalization;
         try {
-            appendix = await bridge.buildReviewedFacts(this.ctx, agent, plan, answers, messages, operationSignal);
+            finalization = await bridge.finalizePreview(this.ctx, agent, plan, answers, textFromSummary(preview), messages, operationSignal);
         }
         catch (error) {
             this.ctx.logger.warn(uiMessageWithError(uiLanguage, "factsUnavailable", error));
             return preview;
         }
-        if (!appendix.text) {
+        if (!finalization.changed) {
             debug(this.ctx, "native_compaction_calls=1 reviewed_facts_auto=0 reviewed_facts_human=0 reviewed_facts_total=0 preview_changed=false");
             return preview;
         }
-        const summary = [
-            ...preview.summary,
-            { type: "text", text: appendix.text },
-        ];
-        debug(this.ctx, `native_compaction_calls=1 reviewed_facts_auto=${String(appendix.facts.filter((fact) => fact.origin === "auto_correction").length)} `
-            + `reviewed_facts_human=${String(appendix.facts.filter((fact) => fact.origin === "human_keep").length)} `
-            + `reviewed_facts_total=${String(appendix.facts.length)} preview_changed=true`);
+        if (finalization.diagnostics?.length)
+            this.ctx.logger.warn(finalization.diagnostics.join("\n"));
+        const summary = applyFinalizationToSummary(preview.summary, finalization);
+        debug(this.ctx, `native_compaction_calls=1 reviewed_facts_auto=${String(finalization.appendix.facts.filter((fact) => fact.origin === "auto_correction").length)} `
+            + `reviewed_facts_human=${String(finalization.appendix.facts.filter((fact) => fact.origin === "human_keep").length)} `
+            + `reviewed_facts_total=${String(finalization.appendix.facts.length)} edits=${String(finalization.edits.length)} preview_changed=true`);
         return { ...preview, summary };
     }
 }

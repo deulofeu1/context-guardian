@@ -146,6 +146,19 @@ export function createSession(sourcePath, tempDir, fillerTurns = 320) {
     Date.now() + sequence * 1000,
   ));
 
+  // A primary status conflict exercises Issue #19. The native model may
+  // summarize the completion claim, while the source-backed audit must keep
+  // the exact unresolved verification state as a separate correction choice.
+  append({
+    role: "user",
+    content: "当前验证状态：原生 0.3.3 测试没有出现 Review 弹窗，因此验证尚未完成。",
+    timestamp: Date.now() + sequence * 1000,
+  });
+  append(assistantMessage(
+    "已记录验证状态：原生 0.3.3 测试没有出现 Review 弹窗，因此验证尚未完成。",
+    Date.now() + sequence * 1000,
+  ));
+
   const filler =
     "背景实现记录：这是 Context Guardian fixture smoke test 的重复填充，表示不会改变关键项目决定的常规进度，" +
     "压缩时可以安全概括。";
