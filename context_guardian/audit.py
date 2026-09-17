@@ -15,6 +15,8 @@ from collections.abc import Iterable
 from pydantic import BaseModel, Field
 
 from .models import (
+    MAX_DISPLAY_TEXT_CHARS,
+    MAX_EXACT_PREVIEW_TARGET_CHARS,
     AuditCoverage,
     AuditDisposition,
     AuditFinding,
@@ -395,6 +397,17 @@ def _short(content: str, limit: int = 220) -> str:
     return re.sub(r"\s+", " ", content).strip()[:limit]
 
 
+def _display_excerpt(content: str | None, limit: int = MAX_DISPLAY_TEXT_CHARS) -> str | None:
+    """Return a bounded UI excerpt without pretending it is the exact target."""
+
+    normalized = re.sub(r"\s+", " ", str(content or "")).strip()
+    if not normalized:
+        return None
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[: max(1, limit - 1)].rstrip() + "…"
+
+
 def _source_context(source: str, evidence: str, *, limit: int = 500) -> str:
     """Return a complete source sentence or bounded source context.
 
@@ -487,12 +500,25 @@ def _exact_target(preview: str, candidate: str) -> str | None:
     token overlap or a fuzzy match is never enough to edit host output.
     """
 
-    target = re.sub(r"\s+", " ", str(candidate or "")).strip()
+    target = str(candidate or "").strip()
     if not target:
         return None
-    normalized_preview = re.sub(r"\s+", " ", str(preview or ""))
-    occurrences = [match.start() for match in re.finditer(re.escape(target), normalized_preview)]
-    return target if len(occurrences) == 1 else None
+    if len(target) > MAX_EXACT_PREVIEW_TARGET_CHARS:
+        return None
+    exact_matches = list(re.finditer(re.escape(target), str(preview or "")))
+    if len(exact_matches) == 1:
+        return exact_matches[0].group(0)
+    parts = [part for part in re.split(r"\s+", target) if part]
+    if not parts:
+        return None
+    # Match whitespace-normalized provider text, but return the original
+    # preview span so finalization can replace it byte-for-byte safely.
+    pattern = r"\s+".join(re.escape(part) for part in parts)
+    normalized_matches = list(re.finditer(pattern, str(preview or "")))
+    if len(normalized_matches) != 1:
+        return None
+    matched = normalized_matches[0].group(0)
+    return matched if len(matched) <= MAX_EXACT_PREVIEW_TARGET_CHARS else None
 
 
 def _relation_for(category: CandidateCategory, content: str = "") -> AuditTaskRelation:
@@ -546,19 +572,36 @@ def _finding_operation(
     return AuditOperation.ADD, None
 
 
-def _contradictory_preview_target(content: str, preview: str) -> str | None:
-    """Locate the complete preview sentence that conflicts with source state."""
+def _contradictory_preview_segment(content: str, preview: str) -> str | None:
+    """Locate one complete preview sentence or Markdown bullet.
+
+    A whole Markdown bullet may contain several sentences. Split it before
+    applying the exact-target limit so a long bullet does not become a Pydantic
+    validation error and a correction can still target the conflicting sentence.
+    """
 
     source_tokens = {
         token
         for token in _tokens(content)
         if len(token) >= 4 or re.search(r"[\u4e00-\u9fff]", token)
     }
-    segments = [
-        segment.strip()
-        for segment in re.split(r"(?<=[.!?。！？])\s+|\n+", preview)
-        if segment.strip()
-    ]
+    segments: list[str] = []
+    for raw_line in str(preview or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        bullet = re.match(r"^(\s*(?:[-*+]\s+|\d+[.)]\s+))", line)
+        prefix = bullet.group(1) if bullet else ""
+        body = line[len(prefix):]
+        parts = [
+            part.strip()
+            for part in re.split(r"(?<=[。！？])\s*|(?<=[.!?])\s+", body)
+            if part.strip()
+        ]
+        if not parts:
+            parts = [body]
+        for part_index, part in enumerate(parts):
+            segments.append(prefix + part if part_index == 0 and prefix else part)
     for segment in segments:
         segment_tokens = _tokens(segment)
         shares_signal = bool(source_tokens.intersection(segment_tokens))
@@ -578,8 +621,15 @@ def _contradictory_preview_target(content: str, preview: str) -> str | None:
             word in segment.casefold()
             for word in ("selected", "chosen", "final", "采用", "最终", "已完成")
         ):
-            return _exact_target(preview, segment)
+            return segment
     return None
+
+
+def _contradictory_preview_target(content: str, preview: str) -> str | None:
+    """Locate a bounded exact target for a contradictory preview segment."""
+
+    segment = _contradictory_preview_segment(content, preview)
+    return _exact_target(preview, segment or "")
 
 
 class PreviewAuditor:
@@ -813,10 +863,10 @@ class PreviewAuditor:
                 suggested_action=ReviewAction.KEEP,
                 source_message_ids=[source_id],
             )
-            target = _contradictory_preview_target(message.content, preview)
+            conflict_segment = _contradictory_preview_segment(message.content, preview)
             finding = self._finding(
                 candidate,
-                AuditIssueType.INCORRECT if target else AuditIssueType.MISSING,
+                AuditIssueType.INCORRECT if conflict_segment else AuditIssueType.MISSING,
                 language,
                 preview,
             )
@@ -891,10 +941,11 @@ class PreviewAuditor:
             if provider_id_map is not None:
                 provider_id_map[finding.id] = stable_id
             current_target = _exact_target(preview, finding.current_summary_text or "")
+            conflict_segment = _contradictory_preview_segment(source_fact, preview)
             if current_target is None and status_signal:
-                current_target = _contradictory_preview_target(source_fact, preview)
+                current_target = _exact_target(preview, conflict_segment or "")
             issue_type = finding.issue_type
-            if status_signal and current_target and issue_type in {
+            if status_signal and conflict_segment and issue_type in {
                 AuditIssueType.MISSING,
                 AuditIssueType.AMBIGUOUS,
             }:
@@ -940,7 +991,8 @@ class PreviewAuditor:
                         ),
                         "operation": operation,
                         "requires_user_confirmation": requires_confirmation,
-                        "current_summary_text": current_target,
+                        "current_summary_text": _display_excerpt(current_target),
+                        "current_summary_target": current_target,
                         "proposed_text": source_fact,
                     }
                 )
@@ -989,6 +1041,21 @@ class PreviewAuditor:
         preview: str = "",
     ) -> ReviewPlan:
         raw_topics = self._make_topics(findings, language)[:MAX_AUDIT_TOPICS]
+        diagnostics_list = list(diagnostics)
+        if any(
+            finding.issue_type in {AuditIssueType.INCORRECT, AuditIssueType.STALE}
+            and finding.operation == AuditOperation.KEEP_PREVIEW
+            for finding in findings
+        ):
+            diagnostics_list.append(
+                _localized(
+                    language,
+                    "检测到与来源状态冲突的原生摘要，但没有找到可安全精确替换的完整文本；已保留原生摘要，未执行模糊修改。",
+                    "A native-preview status conflict was detected, but no safe exact replacement target "
+                    "was found; "
+                    "the native preview was preserved and no fuzzy edit was applied.",
+                )
+            )
         topics = self._apply_review_budget(
             raw_topics,
             max_review_questions,
@@ -1019,7 +1086,7 @@ class PreviewAuditor:
             auto_corrections=auto_corrections,
             accepted_omissions=_unique(accepted_omissions),
             review_questions=questions,
-            diagnostics=_unique(diagnostics),
+            diagnostics=_unique(diagnostics_list),
             audit_status=(
                 "budget_exhausted"
                 if max_review_questions == 0
@@ -1054,8 +1121,10 @@ ambiguous. Do not change it merely because a human must confirm the action. Inst
 requires_user_confirmation=true and use task_relation=primary|related|background. Use
 operation=add for missing information, operation=replace for an exact current preview
 sentence that is wrong, and operation=keep_preview when an exact safe replacement target
-cannot be proven. For replace, current_summary_text MUST be an exact unique substring of
-NATIVE PREVIEW. proposed_text must be source-backed. Include the finding IDs in the topic
+cannot be proven. `current_summary_text` is only a bounded UI excerpt. For replace,
+`current_summary_target` MUST be an exact unique substring of NATIVE PREVIEW when you
+provide it; the Core will independently re-derive and validate the target. proposed_text
+must be source-backed. Include the finding IDs in the topic
 and reference that topic from review_questions when confirmation is required.
 The host will regenerate the visible question from validated source context.
 Return the ReviewPlan schema exactly; auto_corrections must be incremental source-backed
@@ -1153,7 +1222,8 @@ corrections, not a complete summary.
                 CandidateCategory.USER_PREFERENCE,
                 CandidateCategory.WORKING_STATE,
             } and issue_type in {AuditIssueType.INCORRECT, AuditIssueType.STALE}),
-            current_summary_text=target,
+            current_summary_text=_display_excerpt(target),
+            current_summary_target=target,
             proposed_text=_short(candidate.content),
             effect_if_rejected=(
                 _localized(
@@ -1233,7 +1303,14 @@ corrections, not a complete summary.
                 )
             else:
                 recommendation = "correct" if operation != AuditOperation.KEEP_PREVIEW else "accept_preview"
-            current = next((item.current_summary_text for item in group if item.current_summary_text), None)
+            current_target = next(
+                (item.current_summary_target for item in group if item.current_summary_target),
+                None,
+            )
+            current = _display_excerpt(current_target) or next(
+                (item.current_summary_text for item in group if item.current_summary_text),
+                None,
+            )
             proposed = _short(
                 "；".join(item.proposed_text or item.suggested_correction for item in group),
                 500,
@@ -1257,6 +1334,7 @@ corrections, not a complete summary.
                 task_relation=relation,
                 operation=operation,
                 current_summary_text=current,
+                current_summary_target=current_target,
                 proposed_text=proposed,
                 effect_if_rejected=effect,
             ))
@@ -1391,6 +1469,7 @@ corrections, not a complete summary.
                     task_relation=topic.task_relation,
                     operation=topic.operation,
                     current_summary_text=topic.current_summary_text,
+                    current_summary_target=topic.current_summary_target,
                     proposed_text=proposed,
                     effect_if_rejected=reason,
                 )

@@ -78,8 +78,8 @@ DeepSeek Harness 适配器与 Python 核心共用带版本的 bridge 合同，�
 请将核心固定为适配器对应的已发布版本，例如：
 
 ```bash
-python3 -m pip install "context-guardian-core==0.4.0"
-dsh plugin --profile web add context-guardian-deepseek-harness@0.4.0
+python3 -m pip install "context-guardian-core==0.4.1"
+dsh plugin --profile web add context-guardian-deepseek-harness@0.4.1
 ```
 
 如果 bridge 操作不受支持，适配器现在会把底层错误写入 warning，能够直接识别核心与
@@ -246,7 +246,7 @@ npm run dsh-fixture-smoke
 
 ```bash
 CONTEXT_GUARDIAN_DSH_LIVE=1 \
-CONTEXT_GUARDIAN_FIXTURE_PACKAGE=context-guardian-deepseek-harness@0.4.0 \
+CONTEXT_GUARDIAN_FIXTURE_PACKAGE=context-guardian-deepseek-harness@0.4.1 \
 npm run dsh-fixture-smoke
 ```
 

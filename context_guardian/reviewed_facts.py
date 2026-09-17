@@ -443,12 +443,12 @@ def finalize_preview(
         )
         if not should_apply:
             continue
-        target = topic.current_summary_text or next(
+        target = topic.current_summary_target or next(
             (
-                finding.current_summary_text
+                finding.current_summary_target or finding.current_summary_text
                 for finding_id in topic.finding_ids
                 if (finding := finding_by_id.get(finding_id)) is not None
-                and finding.current_summary_text
+                and (finding.current_summary_target or finding.current_summary_text)
             ),
             None,
         )

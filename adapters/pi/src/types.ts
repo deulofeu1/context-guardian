@@ -70,6 +70,7 @@ export type AuditFinding = {
   operation?: "add" | "replace" | "keep_preview";
   requires_user_confirmation?: boolean;
   current_summary_text?: string | null;
+  current_summary_target?: string | null;
   proposed_text?: string | null;
   effect_if_rejected?: string | null;
 };
@@ -90,6 +91,7 @@ export type AuditTopic = {
   task_relation?: "primary" | "related" | "background";
   operation?: "add" | "replace" | "keep_preview";
   current_summary_text?: string | null;
+  current_summary_target?: string | null;
   proposed_text?: string | null;
   effect_if_rejected?: string | null;
 };
@@ -113,6 +115,7 @@ export type ReviewQuestion = {
   task_relation?: "primary" | "related" | "background";
   operation?: "add" | "replace" | "keep_preview";
   current_summary_text?: string | null;
+  current_summary_target?: string | null;
   proposed_text?: string | null;
   effect_if_rejected?: string | null;
 };
