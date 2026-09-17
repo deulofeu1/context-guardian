@@ -119,6 +119,40 @@ test("Pi review path invokes the UI confirmation when a question exists", async 
   assert.deepEqual(answers, [{ question_id: "q1", topic_id: "t1", action: "keep" }]);
 });
 
+test("Pi review path uses explicit selector actions when the host exposes select", async () => {
+  const plan = {
+    review_questions: [{
+      id: "q1",
+      topic_id: "t1",
+      title: "Test status",
+      question: "Apply this correction?",
+      context: "Current summary: complete.\n\nProposed text: not verified.",
+      why_it_matters: "The current status may mislead future work.",
+      recommendation: "correct",
+      operation: "replace",
+      options: [
+        { id: "correct", label: "Apply correction", description: "Replace the current status." },
+        { id: "keep_preview", label: "Keep current summary", description: "Leave it unchanged." },
+      ],
+    }],
+  } as any;
+  let selectedTitle = "";
+  const answers = await answerReviewQuestions(
+    { hasUI: true, ui: {
+      select: async (title: string, options: string[]) => {
+        selectedTitle = title;
+        assert.equal(options.length, 2);
+        return options[0];
+      },
+      confirm: async () => false,
+    } } as any,
+    plan,
+    new AbortController().signal,
+  );
+  assert.match(selectedTitle, /Current summary: complete/);
+  assert.deepEqual(answers, [{ question_id: "q1", topic_id: "t1", action: "correct" }]);
+});
+
 test("Pi appends reviewed facts without a second native summary", () => {
   const preview = "Native Pi preview";
   const appendix = {

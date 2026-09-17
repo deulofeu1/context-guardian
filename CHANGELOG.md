@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.0 - 2026-09-17 (Issue #19 bounded summary corrections)
+
+- Separated factual audit types from the independent decision to ask a human,
+  so primary status conflicts remain `incorrect`/`stale` instead of becoming a
+  generic ambiguous side topic.
+- Added before/after review details, explicit correction/keep-preview actions,
+  exact preview fingerprints, and deterministic unique-target replacement with
+  fail-closed diagnostics.
+- Kept the hard three-topic review budget and removed raw tool/log/path/hash and
+  permission noise from the review surface.
+- Updated Pi to use its selector UI when available and updated DeepSeek Harness
+  to preserve non-text summary blocks and metadata while finalizing text edits.
+- Added source-backed Issue #19 regression tests and status-conflict fixture data.
+
 ## 0.3.5 - 2026-09-16 (Live host fixture verification)
 
 - Added a real DeepSeek Harness live fixture mode that reuses the host's configured

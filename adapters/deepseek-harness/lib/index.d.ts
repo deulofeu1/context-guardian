@@ -1,7 +1,7 @@
 import type { Context } from "@deepseek-ai/cordis";
 import { BasicCompactionEngine } from "@deepseek-ai/dsh-compaction-basic";
 import type { Agent } from "@deepseek-ai/dsh-agent";
-import type { ReviewPlan } from "./types.js";
+import type { PreviewFinalization, ReviewPlan } from "./types.js";
 export declare const name = "context-guardian-deepseek-harness";
 type NativeSummarize = BasicCompactionEngine["summarize"];
 type NativeSummarizeInput = Parameters<NativeSummarize>[0];
@@ -12,7 +12,7 @@ export declare function uiMessageWithError(language: UiLanguage, key: UiMessageK
 export declare function answersForNoUi(plan: ReviewPlan): Array<{
     question_id: string;
     topic_id: string;
-    action: "keep" | "drop";
+    action: "keep" | "drop" | "correct" | "keep_preview" | "add";
 }>;
 export declare function reviewQuestionsForUi(plan: ReviewPlan): {
     id: string;
@@ -27,8 +27,17 @@ export declare function reviewQuestionsForUi(plan: ReviewPlan): {
 export declare function answerReviewQuestions(ctx: Context, agent: Agent, plan: ReviewPlan, signal: AbortSignal): Promise<Array<{
     question_id: string;
     topic_id: string;
-    action: "keep" | "drop";
+    action: "keep" | "drop" | "correct" | "keep_preview" | "add";
 }>>;
+export declare function applyFinalizationToSummary(summary: readonly {
+    type?: string;
+    text?: string;
+    [key: string]: unknown;
+}[], finalization: PreviewFinalization): {
+    type?: string;
+    text?: string;
+    [key: string]: unknown;
+}[];
 /**
  * Decorates the native DeepSeek Harness compactor. The native engine owns the
  * single transaction; this override only performs an uncommitted preview,

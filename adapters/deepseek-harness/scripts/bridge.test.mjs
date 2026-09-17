@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 import { GuardianBridge, normalizeDeepSeekMessages, preferredLanguage, pythonCommand, pythonEnvironment } from "../lib/bridge.js";
-import { answerReviewQuestions, ContextGuardianCompactionEngine, answersForNoUi, reviewQuestionsForUi, uiMessageWithError } from "../lib/index.js";
+import { answerReviewQuestions, applyFinalizationToSummary, ContextGuardianCompactionEngine, answersForNoUi, reviewQuestionsForUi, uiMessageWithError } from "../lib/index.js";
 import { appendReviewedFacts } from "../lib/reviewed-facts.js";
 
 const repositoryRoot = resolve(new URL("../../../", import.meta.url).pathname);
@@ -213,6 +213,32 @@ test("DeepSeek appends reviewed facts to summary without a second native call", 
   assert.equal(finalSummary.startsWith(preview), true);
   assert.equal(finalSummary.includes("SQLite was abandoned"), true);
   assert.equal(appendReviewedFacts(finalSummary, appendix), finalSummary);
+});
+
+test("DeepSeek finalization preserves non-text summary blocks and metadata", () => {
+  const summary = [
+    { type: "text", text: "The delivery status is complete." },
+    { type: "reasoning", text: "hidden reasoning", providerMetadata: { trace: "keep" } },
+    { type: "tool-result", tool: "native", payload: { keep: true } },
+  ];
+  const result = applyFinalizationToSummary(summary, {
+    original_preview: "The delivery status is complete.",
+    final_summary: "The delivery status is not verified.",
+    changed: true,
+    edits: [{
+      id: "edit-1",
+      operation: "replace",
+      target: "The delivery status is complete.",
+      replacement: "The delivery status is not verified.",
+      status: "applied",
+      reason: "exact unique source-backed target",
+    }],
+    appendix: { version: "1", language: "en", facts: [], text: "" },
+    diagnostics: [],
+  });
+  assert.equal(result[0].text, "The delivery status is not verified.");
+  assert.deepEqual(result[1], summary[1]);
+  assert.deepEqual(result[2], summary[2]);
 });
 
 test("DeepSeek fallback warnings preserve bridge error details", () => {

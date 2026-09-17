@@ -1,4 +1,4 @@
-"""Deterministic Reviewed Facts generation and append-only finalization.
+"""Deterministic Reviewed Facts generation and safe preview finalization.
 
 This module intentionally contains no provider or model calls.  A host native
 compactor owns the preview; Context Guardian only adds source-backed facts that
@@ -15,8 +15,11 @@ from collections.abc import Iterable
 
 from .audit import is_execution_noise, validate_review_plan
 from .models import (
+    AuditDisposition,
+    AuditOperation,
     CandidateCategory,
     ConversationMessage,
+    PreviewEdit,
     PreviewFinalization,
     ReviewedFact,
     ReviewedFactsAppendix,
@@ -152,7 +155,7 @@ def _answer_map(answers: Iterable[dict]) -> dict[str, str]:
             continue
         action = str(raw.get("action", raw.get("answer", ""))).casefold()
         key = raw.get("question_id") or raw.get("topic_id") or raw.get("id")
-        if key and action in {"keep", "drop"}:
+        if key and action in {"keep", "drop", "correct", "keep_preview", "add"}:
             result[str(key)] = action
     return result
 
@@ -192,14 +195,36 @@ def build_reviewed_facts(
     review_plan: ReviewPlan,
     answers: Iterable[dict] = (),
     messages: Iterable[ConversationMessage | dict] | None = None,
+    *,
+    preview: str = "",
+    validated: bool = False,
 ) -> ReviewedFactsAppendix:
     """Build a stable appendix only from a revalidated source-backed plan."""
 
-    plan = validate_review_plan(review_plan, messages)
+    plan = (
+        ReviewPlan.model_validate(review_plan)
+        if validated
+        else validate_review_plan(review_plan, messages, preview=preview)
+    )
     facts: list[ReviewedFact] = []
     seen: set[str] = set()
 
-    for correction in _non_conflicting_corrections(plan):
+    topic_by_finding = {
+        finding_id: topic
+        for topic in plan.audit_topics
+        for finding_id in topic.finding_ids
+    }
+    appendable_corrections = [
+        correction
+        for correction in _non_conflicting_corrections(plan)
+        if not any(
+            topic_by_finding.get(finding.id) is not None
+            and topic_by_finding[finding.id].operation == "replace"
+            and finding.suggested_correction.casefold() == str(correction).casefold()
+            for finding in plan.findings
+        )
+    ]
+    for correction in appendable_corrections:
         category = next(
             (
                 finding.category
@@ -214,12 +239,16 @@ def build_reviewed_facts(
     answer_map = _answer_map(answers)
     for question in plan.review_questions:
         action = answer_map.get(question.id) or answer_map.get(question.topic_id)
-        if action != "keep":
+        if action not in {"keep", "add", "correct"}:
             continue
         topic = topic_by_id.get(question.topic_id)
         if topic is None:
             continue
-        correction = topic.suggested_correction or topic.summary
+        if topic.operation == "replace":
+            # Replacements are applied to the native text by finalize_preview;
+            # appending the replacement would leave both contradictory states.
+            continue
+        correction = topic.proposed_text or topic.suggested_correction or topic.summary
         _append_fact(
             facts,
             seen,
@@ -329,13 +358,159 @@ def finalize_preview(
     answers: Iterable[dict] = (),
     messages: Iterable[ConversationMessage | dict] | None = None,
 ) -> PreviewFinalization:
-    """Build facts and append them, returning an explicit preservation record."""
+    """Apply only exact, source-backed corrections, then append reviewed facts.
 
-    appendix = _with_carried_forward(preview, build_reviewed_facts(review_plan, answers, messages))
-    final = append_reviewed_facts(preview, appendix)
+    The native preview is the authority for everything not explicitly corrected.
+    A correction is never a fuzzy replacement: the target must be present exactly
+    once and the audit must belong to this exact preview.
+    """
+
+    from .audit import preview_fingerprint
+
+    original = str(preview)
+    diagnostics: list[str] = []
+    incoming_plan = ReviewPlan.model_validate(review_plan)
+    incoming_answers = _answer_map(answers)
+    incoming_topic_actions: dict[str, str] = {}
+    incoming_finding_actions: dict[tuple[str, tuple[str, ...]], str] = {}
+    incoming_findings = {finding.id: finding for finding in incoming_plan.findings}
+    incoming_topics = {topic.id: topic for topic in incoming_plan.audit_topics}
+    for question in incoming_plan.review_questions:
+        action = incoming_answers.get(question.id) or incoming_answers.get(question.topic_id)
+        if action and question.topic_id in incoming_topics:
+            for finding_id in incoming_topics[question.topic_id].finding_ids:
+                incoming_topic_actions[finding_id] = action
+                finding = incoming_findings.get(finding_id)
+                if finding is not None:
+                    incoming_finding_actions[
+                        (finding.category.value, tuple(sorted(finding.source_message_ids)))
+                    ] = action
+    expected = incoming_plan.preview_fingerprint
+    if expected and expected != preview_fingerprint(original):
+        diagnostics.append("preview_fingerprint_mismatch")
+        empty = ReviewedFactsAppendix(language=incoming_plan.language)
+        return PreviewFinalization(
+            original_preview=original,
+            final_summary=original,
+            appendix=empty,
+            changed=False,
+            diagnostics=diagnostics,
+        )
+    plan = validate_review_plan(incoming_plan, messages, preview=original)
+
+    answers_by_key = _answer_map(answers)
+    finding_by_id = {finding.id: finding for finding in plan.findings}
+    edits: list[PreviewEdit] = []
+    replacements: list[tuple[str, str, str, str | None]] = []
+    for topic in plan.audit_topics:
+        action = None
+        if topic.disposition is AuditDisposition.ASK_USER:
+            action = answers_by_key.get(topic.id)
+            if action is None:
+                for question in plan.review_questions:
+                    if question.topic_id == topic.id:
+                        action = answers_by_key.get(question.id)
+                        break
+            if action is None:
+                action = next(
+                    (
+                        incoming_topic_actions.get(finding_id)
+                        for finding_id in topic.finding_ids
+                        if incoming_topic_actions.get(finding_id) is not None
+                    ),
+                    None,
+                )
+            if action is None:
+                action = next(
+                    (
+                        incoming_finding_actions.get(
+                            (finding.category.value, tuple(sorted(finding.source_message_ids)))
+                        )
+                        for finding_id in topic.finding_ids
+                        if (finding := finding_by_id.get(finding_id)) is not None
+                        and incoming_finding_actions.get(
+                            (finding.category.value, tuple(sorted(finding.source_message_ids)))
+                        ) is not None
+                    ),
+                    None,
+                )
+        should_apply = (
+            topic.operation == AuditOperation.REPLACE
+            and (
+                topic.disposition is AuditDisposition.AUTO_CORRECT
+                or action in {"correct", "add"}
+            )
+        )
+        if not should_apply:
+            continue
+        target = topic.current_summary_text or next(
+            (
+                finding.current_summary_text
+                for finding_id in topic.finding_ids
+                if (finding := finding_by_id.get(finding_id)) is not None
+                and finding.current_summary_text
+            ),
+            None,
+        )
+        replacement = topic.proposed_text or next(
+            (
+                finding.proposed_text or finding.suggested_correction
+                for finding_id in topic.finding_ids
+                if (finding := finding_by_id.get(finding_id)) is not None
+            ),
+            None,
+        )
+        if not target or not replacement:
+            diagnostics.append(f"edit_target_missing:{topic.id}")
+            continue
+        count = original.count(target)
+        if count != 1:
+            diagnostics.append(f"edit_target_not_unique:{topic.id}:{count}")
+            edits.append(PreviewEdit(
+                id=f"edit_{topic.id}",
+                target=target,
+                replacement=replacement,
+                topic_id=topic.id,
+                status="skipped",
+                reason="target must occur exactly once in the original preview",
+            ))
+            continue
+        replacements.append(
+            (target, replacement, topic.id, topic.finding_ids[0] if topic.finding_ids else None)
+        )
+
+    edited = original
+    # Longer targets first prevents a short target from consuming a larger,
+    # overlapping exact sentence. Overlap is still rejected rather than guessed.
+    for target, replacement, topic_id, finding_id in sorted(
+        replacements,
+        key=lambda item: (-len(item[0]), item[2]),
+    ):
+        if edited.count(target) != 1:
+            diagnostics.append(f"edit_target_changed:{topic_id}")
+            edits.append(PreviewEdit(
+                id=f"edit_{topic_id}", target=target, replacement=replacement,
+                topic_id=topic_id, finding_id=finding_id, status="skipped",
+                reason="target was no longer unique after an earlier edit",
+            ))
+            continue
+        edited = edited.replace(target, replacement, 1)
+        edits.append(PreviewEdit(
+            id=f"edit_{topic_id}", target=target, replacement=replacement,
+            topic_id=topic_id, finding_id=finding_id, status="applied",
+            reason="exact unique source-backed target",
+        ))
+
+    appendix = _with_carried_forward(
+        edited,
+        build_reviewed_facts(plan, answers, messages, preview=original, validated=True),
+    )
+    final = append_reviewed_facts(edited, appendix)
     return PreviewFinalization(
-        original_preview=preview,
+        original_preview=original,
         final_summary=final,
         appendix=appendix,
-        changed=final != preview,
+        changed=final != original,
+        edits=edits,
+        diagnostics=diagnostics,
     )

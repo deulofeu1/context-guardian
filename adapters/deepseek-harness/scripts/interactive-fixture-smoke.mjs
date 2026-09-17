@@ -106,6 +106,7 @@ function buildFixtureEvents() {
     "TODO：auth.py 仍未完成，需要实现 OAuth 回调。",
     "未决方向：未来是否引入 Redis 作为 session cache 尚未决定；这不是当前数据库方案，是否在压缩后保留由用户判断。",
     "当前状态：provider abstraction 已接入，但 callback 路径还未完成。",
+    "当前验证状态：原生 0.3.3 测试没有出现 Review 弹窗，因此验证尚未完成。",
     "用户偏好：保持补丁小巧，不要新增服务。",
     "迁移测试覆盖现有 public API，必须继续通过。",
     "需要记录 OAuth redirect URI 和生产环境 callback 变量。",
@@ -135,6 +136,7 @@ function buildFixtureEvents() {
     if (userText.startsWith("决定：")) sourceIds.postgres = userMessage.id;
     if (userText.startsWith("SQLite 曾")) sourceIds.sqlite = userMessage.id;
     if (userText.startsWith("TODO：")) sourceIds.auth = userMessage.id;
+    if (userText.startsWith("当前验证状态：")) sourceIds.status = userMessage.id;
     if (userText.startsWith("旁支讨论：")) sourceIds.side = userMessage.id;
     push("user/message", userMessage, { surfaceOp: "append" });
 
@@ -349,12 +351,30 @@ async function main() {
       },
     ],
   };
-  const nativePreview = "目标：实现 OAuth，但不能修改 public API。\n决定：PostgreSQL 是最终数据库方案。\n当前 API 兼容约束仍然有效。";
+  const nativePreview = "目标：实现 OAuth，但不能修改 public API。\n决定：PostgreSQL 是最终数据库方案。\n当前 API 兼容约束仍然有效。\n当前验证与最终校验已完成。";
   const auditPlan = {
     language: "zh-CN",
     overview: "原生预览已经生成。发现 2 项明确修正，还有 1 个旁支主题需要你判断。",
     auto_preserve_summary: "当前目标、API 兼容约束和 PostgreSQL 决定已经被原生预览保留。",
     findings: [
+      {
+        id: "finding-status",
+        issue_type: "incorrect",
+        category: "working_state",
+        summary: "当前验证状态：原生 0.3.3 测试没有出现 Review 弹窗，因此验证尚未完成。",
+        why_it_matters: "当前摘要的完成状态可能误导后续验证与发布判断。",
+        suggested_correction: "当前验证状态：原生 0.3.3 测试没有出现 Review 弹窗，因此验证尚未完成。",
+        importance: 0.95,
+        confidence: 0.98,
+        source_message_ids: [sourceIds.status],
+        evidence_snippets: ["当前验证状态：原生 0.3.3 测试没有出现 Review 弹窗，因此验证尚未完成。"],
+        task_relation: "primary",
+        operation: "replace",
+        requires_user_confirmation: true,
+        current_summary_text: "当前验证与最终校验已完成。",
+        proposed_text: "当前验证状态：原生 0.3.3 测试没有出现 Review 弹窗，因此验证尚未完成。",
+        effect_if_rejected: "当前摘要中的状态可能继续误导后续验证与发布判断。",
+      },
       {
         id: "finding-sqlite",
         issue_type: "missing",
@@ -407,6 +427,25 @@ async function main() {
         suggested_correction: "SQLite 因并发写入导致锁问题而被放弃。auth.py 仍未完成，需要实现 OAuth 回调。",
       },
       {
+        id: "topic-status",
+        title: "测试验证状态可能不正确",
+        summary: "原生预览将测试写成已完成，但来源显示 Review 弹窗没有出现。",
+        finding_ids: ["finding-status"],
+        impact: 0.95,
+        confidence: 0.98,
+        relevance_to_main_goal: 1,
+        requires_user_preference: true,
+        disposition: "ask_user",
+        recommended_action: "correct",
+        suggested_correction: "当前验证状态：原生 0.3.3 测试没有出现 Review 弹窗，因此验证尚未完成。",
+        evidence_snippets: ["当前验证状态：原生 0.3.3 测试没有出现 Review 弹窗，因此验证尚未完成。"],
+        task_relation: "primary",
+        operation: "replace",
+        current_summary_text: "当前验证与最终校验已完成。",
+        proposed_text: "当前验证状态：原生 0.3.3 测试没有出现 Review 弹窗，因此验证尚未完成。",
+        effect_if_rejected: "当前摘要中的状态可能继续误导后续验证与发布判断。",
+      },
+      {
         id: "topic-npm",
         title: "npm 基础概念旁支讨论",
         summary: "你在项目开发过程中讨论过 npm 的基本用途。",
@@ -426,6 +465,25 @@ async function main() {
     ],
     accepted_omissions: ["临时工具输出、日志、路径、哈希和已解决的错误。"],
     review_questions: [
+      {
+        id: "question-status",
+        topic_id: "topic-status",
+        title: "测试验证状态可能不正确",
+        question: "是否采用对「测试验证状态可能不正确」的摘要修正？",
+        context: "主题说明：原生预览写成测试与最终校验已完成。\n\n当前摘要：当前验证与最终校验已完成。\n\n建议写入：当前验证状态：原生 0.3.3 测试没有出现 Review 弹窗，因此验证尚未完成。",
+        why_it_matters: "当前摘要中的状态可能继续误导后续验证与发布判断。",
+        recommendation: "correct",
+        options: [
+          { id: "correct", label: "采用修正", description: "替换当前摘要中的完成状态；不会保留完整原始对话。" },
+          { id: "keep_preview", label: "保持当前摘要", description: "不修改当前摘要，也不追加这项修正。" },
+        ],
+        evidence_snippets: ["当前验证状态：原生 0.3.3 测试没有出现 Review 弹窗，因此验证尚未完成。"],
+        task_relation: "primary",
+        operation: "replace",
+        current_summary_text: "当前验证与最终校验已完成。",
+        proposed_text: "当前验证状态：原生 0.3.3 测试没有出现 Review 弹窗，因此验证尚未完成。",
+        effect_if_rejected: "当前摘要中的状态可能继续误导后续验证与发布判断。",
+      },
       {
         id: "question-npm",
         topic_id: "topic-npm",
@@ -539,7 +597,7 @@ async function main() {
     console.log(`DeepSeek Harness Context Guardian ${liveMode ? "live" : "replay"} fixture is ready.`);
     console.log("Open the printed Web URL, select 'Context Guardian 预置长对话（请先选择）' (or the context-guardian-fixture-long session), enter /compact, and answer at most three topic questions.");
     console.log("Expected automatic corrections: SQLite failure reason and the incomplete auth.py TODO.");
-    console.log("Expected topic question: npm fundamentals side discussion; execution noise stays out of the UI.");
+    console.log("Expected correction question: unresolved native-popup verification status; the npm fundamentals side discussion may appear as one bounded question; execution noise stays out of the UI.");
     console.log("Expected final result: one native Preview plus a Reviewed Facts block containing the selected corrections and no raw logs.");
     if (liveMode) console.log(`Live route: ${hostProvider}/${hostModel}; credentials stay inside DeepSeek Harness.`);
     console.log("Exit the Web process with Ctrl-C when finished.");

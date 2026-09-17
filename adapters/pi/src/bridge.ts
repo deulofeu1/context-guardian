@@ -11,6 +11,7 @@ import type {
   ProtocolFrame,
   ReviewPlan,
   ReviewedFactsAppendix,
+  PreviewFinalization,
   MessageProvenance,
 } from "./types.ts";
 
@@ -59,6 +60,9 @@ export function pythonEnvironment(
   }
   const pythonPath = source.CONTEXT_GUARDIAN_PYTHONPATH;
   if (pythonPath !== undefined) environment.PYTHONPATH = pythonPath;
+  if (source.CONTEXT_GUARDIAN_DEBUG !== undefined) {
+    environment.CONTEXT_GUARDIAN_DEBUG = source.CONTEXT_GUARDIAN_DEBUG;
+  }
   return environment;
 }
 
@@ -213,9 +217,27 @@ export class GuardianBridge {
     return result as ReviewedFactsAppendix;
   }
 
+  async finalizePreview(
+    ctx: ExtensionContext,
+    reviewPlan: ReviewPlan,
+    answers: Array<{ question_id: string; topic_id: string; action: "keep" | "drop" | "correct" | "keep_preview" | "add" }>,
+    preview: string,
+    messages: GuardianMessage[],
+    signal: AbortSignal,
+    timeoutMs = configuredTimeoutMs(),
+  ): Promise<PreviewFinalization> {
+    const result = await this.request(ctx, "finalize_preview", {
+      preview,
+      review_plan: reviewPlan,
+      answers,
+      messages,
+    }, signal, timeoutMs);
+    return result as PreviewFinalization;
+  }
+
   private async request(
     ctx: ExtensionContext,
-    operation: "inspect" | "guidance" | "audit_preview" | "revision_guidance" | "build_reviewed_facts",
+    operation: "inspect" | "guidance" | "audit_preview" | "revision_guidance" | "build_reviewed_facts" | "finalize_preview",
     body: Record<string, unknown>,
     signal: AbortSignal,
     timeoutMs: number,

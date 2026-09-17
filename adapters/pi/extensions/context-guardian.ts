@@ -5,7 +5,6 @@ import {
   type SessionBeforeCompactEvent,
 } from "@earendil-works/pi-coding-agent";
 import { GuardianBridge, normalizePiMessages, preferredLanguage } from "../src/bridge.ts";
-import { appendReviewedFacts } from "../src/reviewed-facts.ts";
 import type { ReviewPlan, ReviewQuestion } from "../src/types.ts";
 
 const bridge = new GuardianBridge();
@@ -51,22 +50,31 @@ function debug(message: string): void {
 }
 
 export function questionBody(question: ReviewQuestion): string {
-  const options = question.options.map((option) => `${option.label}: ${option.description}`).join("\n");
+  const chinese = /[\u4e00-\u9fff]/.test(
+    `${question.question} ${question.context} ${question.why_it_matters}`,
+  );
   const evidence = question.evidence_snippets?.length
-    ? `\n\n来源证据（原文，仅用于核对）：\n${question.evidence_snippets.join("\n")}`
+    ? chinese
+      ? `\n\n来源证据（原文，仅用于核对）：\n${question.evidence_snippets.join("\n")}`
+      : `\n\nSource evidence (verbatim, for verification):\n${question.evidence_snippets.join("\n")}`
     : "";
-  return `${question.question}\n\n${question.context}\n\n${question.why_it_matters}${evidence}\n\n${options}`;
+  return `${question.question}\n\n${question.context}\n\n${chinese ? "原因：" : "Why it matters: "}${question.why_it_matters}`
+    + `${evidence}\n\n${chinese ? "请选择下方操作；这不会保留完整原始对话。" : "Choose an action below; the full original conversation is not preserved."}`;
 }
 
 export function answersForNoUi(plan: ReviewPlan): Array<{
   question_id: string;
   topic_id: string;
-  action: "keep" | "drop";
+  action: "keep" | "drop" | "correct" | "keep_preview" | "add";
 }> {
   return plan.review_questions.map((question) => ({
     question_id: question.id,
     topic_id: question.topic_id,
-    action: question.recommendation,
+    action: question.operation === "replace"
+      ? "keep_preview"
+      : question.operation === "add"
+        ? "drop"
+        : question.recommendation,
   }));
 }
 
@@ -74,17 +82,34 @@ export async function answerReviewQuestions(
   ctx: ExtensionContext,
   plan: ReviewPlan,
   signal: AbortSignal,
-): Promise<Array<{ question_id: string; topic_id: string; action: "keep" | "drop" }>> {
+): Promise<Array<{ question_id: string; topic_id: string; action: "keep" | "drop" | "correct" | "keep_preview" | "add" }>> {
   if (!ctx.hasUI) return answersForNoUi(plan);
 
-  const answers: Array<{ question_id: string; topic_id: string; action: "keep" | "drop" }> = [];
+  const answers: Array<{ question_id: string; topic_id: string; action: "keep" | "drop" | "correct" | "keep_preview" | "add" }> = [];
   for (const question of plan.review_questions.slice(0, MAX_REVIEW_QUESTIONS)) {
     if (signal.aborted) throw new Error("review aborted");
-    const keep = await ctx.ui.confirm(question.title, questionBody(question));
+    let optionIndex: number;
+    if (typeof ctx.ui.select === "function") {
+      const selected = await ctx.ui.select(
+        questionBody(question),
+        question.options.map((option) => `${option.label} — ${option.description}`),
+        { signal },
+      );
+      if (selected === undefined) throw new Error("review cancelled");
+      optionIndex = question.options.findIndex(
+        (option) => selected === `${option.label} — ${option.description}`,
+      );
+    } else {
+      // Compatibility fallback for older/mocked hosts. Current Pi exposes
+      // select(), so real installations still show both explicit actions.
+      const accepted = await ctx.ui.confirm(question.title, questionBody(question), { signal });
+      optionIndex = accepted ? 0 : 1;
+    }
+    if (optionIndex < 0) throw new Error(`unknown review option for ${question.id}`);
     answers.push({
       question_id: question.id,
       topic_id: question.topic_id,
-      action: keep ? "keep" : "drop",
+      action: question.options[optionIndex].id,
     });
   }
   return answers;
@@ -100,7 +125,11 @@ function retainedContextFromPreparation(preparation: SessionBeforeCompactEvent["
 }
 
 async function handleBeforeCompact(event: SessionBeforeCompactEvent, ctx: ExtensionContext) {
-  if (!ctx.model) return;
+  debug("session_before_compact received");
+  if (!ctx.model) {
+    debug("skipping: host model unavailable");
+    return;
+  }
 
   const messages = normalizePiMessages(
     event.preparation.messagesToSummarize,
@@ -110,7 +139,10 @@ async function handleBeforeCompact(event: SessionBeforeCompactEvent, ctx: Extens
 
   try {
     const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model);
-    if (!auth.ok) return;
+    if (!auth.ok) {
+      debug("skipping: host model authentication unavailable");
+      return;
+    }
 
     const headers = auth.headers
       ? Object.fromEntries(
@@ -130,6 +162,7 @@ async function handleBeforeCompact(event: SessionBeforeCompactEvent, ctx: Extens
       event.signal,
       ctx.thinkingLevel,
     );
+    debug(`native preview received chars=${String(summaryFromPreview(preview).length)}`);
 
     let plan: ReviewPlan;
     try {
@@ -143,6 +176,7 @@ async function handleBeforeCompact(event: SessionBeforeCompactEvent, ctx: Extens
         configuredReviewBudget(),
       );
     } catch (error) {
+      debug(`audit failed: ${error instanceof Error ? error.message : String(error)}`);
       if (ctx.hasUI) {
         ctx.ui.notify(uiMessage(uiLanguage, "auditUnavailable"), "warning");
       }
@@ -150,7 +184,6 @@ async function handleBeforeCompact(event: SessionBeforeCompactEvent, ctx: Extens
     }
 
     uiLanguage = plan.language;
-
     if (ctx.hasUI) {
       ctx.ui.notify(auditNotice(plan), "info");
       if (plan.diagnostics?.length) {
@@ -162,30 +195,43 @@ async function handleBeforeCompact(event: SessionBeforeCompactEvent, ctx: Extens
     try {
       answers = await answerReviewQuestions(ctx, plan, event.signal);
     } catch (error) {
+      debug(`review failed: ${error instanceof Error ? error.message : String(error)}`);
       if (ctx.hasUI) {
         ctx.ui.notify(uiMessage(uiLanguage, "reviewCancelled"), "warning");
       }
       return { compaction: preview };
     }
-    let appendix;
+    let finalization;
     try {
-      appendix = await bridge.buildReviewedFacts(ctx, plan, answers, messages, event.signal);
+      finalization = await bridge.finalizePreview(
+        ctx,
+        plan,
+        answers,
+        summaryFromPreview(preview),
+        messages,
+        event.signal,
+      );
     } catch (error) {
+      debug(`finalization failed: ${error instanceof Error ? error.message : String(error)}`);
       if (ctx.hasUI) {
         ctx.ui.notify(uiMessage(uiLanguage, "factsUnavailable"), "warning");
       }
       return { compaction: preview };
     }
     const originalSummary = summaryFromPreview(preview);
-    const finalSummary = appendReviewedFacts(originalSummary, appendix);
+    const finalSummary = finalization.final_summary;
+    if (finalization.diagnostics?.length && ctx.hasUI) {
+      ctx.ui.notify(finalization.diagnostics.join("\n"), "warning");
+    }
     debug(
-      `native_compaction_calls=1 reviewed_facts_auto=${String(appendix.facts.filter((fact) => fact.origin === "auto_correction").length)} `
-        + `reviewed_facts_human=${String(appendix.facts.filter((fact) => fact.origin === "human_keep").length)} `
-        + `reviewed_facts_total=${String(appendix.facts.length)} preview_changed=${String(finalSummary !== originalSummary)}`,
+      `native_compaction_calls=1 reviewed_facts_auto=${String(finalization.appendix.facts.filter((fact) => fact.origin === "auto_correction").length)} `
+        + `reviewed_facts_human=${String(finalization.appendix.facts.filter((fact) => fact.origin === "human_keep").length)} `
+        + `reviewed_facts_total=${String(finalization.appendix.facts.length)} edits=${String(finalization.edits.length)} preview_changed=${String(finalSummary !== originalSummary)}`,
     );
     if (finalSummary === originalSummary) return { compaction: preview };
     return { compaction: { ...preview, summary: finalSummary } };
   } catch (error) {
+    debug(`guardian hook failed: ${error instanceof Error ? error.message : String(error)}`);
     if (ctx.hasUI) {
       ctx.ui.notify(uiMessage(uiLanguage, "guardianUnavailable"), "warning");
     }

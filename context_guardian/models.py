@@ -74,6 +74,22 @@ class AuditDisposition(StrEnum):
     ASK_USER = "ask_user"
 
 
+class AuditTaskRelation(StrEnum):
+    """How strongly an audited fact is related to the active task."""
+
+    PRIMARY = "primary"
+    RELATED = "related"
+    BACKGROUND = "background"
+
+
+class AuditOperation(StrEnum):
+    """The safe operation a reviewed finding represents."""
+
+    ADD = "add"
+    REPLACE = "replace"
+    KEEP_PREVIEW = "keep_preview"
+
+
 class ConversationMessage(BaseModel):
     """A minimal message shape that adapters can normalize into."""
 
@@ -172,7 +188,7 @@ class ReviewTopicDecision(BaseModel):
     """A user's decision about one bounded, topic-level review question."""
 
     topic_id: str
-    action: Literal["keep", "drop"]
+    action: Literal["keep", "drop", "correct", "keep_preview", "add"]
 
 
 class ReviewTopic(BaseModel):
@@ -207,6 +223,14 @@ class AuditFinding(BaseModel):
     confidence: float = Field(ge=0, le=1)
     source_message_ids: list[str] = Field(default_factory=list)
     evidence_snippets: list[str] = Field(default_factory=list, max_length=2)
+    # Issue type describes the discrepancy in the native preview.  It must not
+    # be changed merely because a human should confirm the proposed action.
+    task_relation: Literal["primary", "related", "background"] = "related"
+    operation: Literal["add", "replace", "keep_preview"] = "add"
+    requires_user_confirmation: bool = False
+    current_summary_text: str | None = Field(default=None, max_length=500)
+    proposed_text: str | None = Field(default=None, max_length=500)
+    effect_if_rejected: str | None = Field(default=None, max_length=500)
 
 
 class AuditTopic(BaseModel):
@@ -223,15 +247,22 @@ class AuditTopic(BaseModel):
     relevance_to_main_goal: float = Field(ge=0, le=1)
     requires_user_preference: bool = False
     disposition: AuditDisposition
-    recommended_action: Literal["keep", "drop", "correct", "accept_preview"] = "accept_preview"
+    recommended_action: Literal[
+        "keep", "drop", "correct", "accept_preview", "add", "keep_preview"
+    ] = "accept_preview"
     suggested_correction: str | None = None
     evidence_snippets: list[str] = Field(default_factory=list, max_length=3)
+    task_relation: Literal["primary", "related", "background"] = "related"
+    operation: Literal["add", "replace", "keep_preview"] = "add"
+    current_summary_text: str | None = Field(default=None, max_length=500)
+    proposed_text: str | None = Field(default=None, max_length=500)
+    effect_if_rejected: str | None = Field(default=None, max_length=500)
 
 
 class ReviewOption(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    id: Literal["keep", "drop"]
+    id: Literal["keep", "drop", "correct", "keep_preview", "add"]
     label: str = Field(min_length=1)
     description: str = Field(min_length=1)
 
@@ -247,10 +278,15 @@ class ReviewQuestion(BaseModel):
     question: str = Field(min_length=1)
     context: str = Field(min_length=1)
     why_it_matters: str = Field(min_length=1)
-    recommendation: Literal["keep", "drop"]
+    recommendation: Literal["keep", "drop", "correct", "keep_preview", "add"]
     options: list[ReviewOption] = Field(min_length=2, max_length=2)
     # Exact source excerpts are shown separately from the localized question.
     evidence_snippets: list[str] = Field(default_factory=list, max_length=3)
+    task_relation: Literal["primary", "related", "background"] = "related"
+    operation: Literal["add", "replace", "keep_preview"] = "add"
+    current_summary_text: str | None = Field(default=None, max_length=500)
+    proposed_text: str | None = Field(default=None, max_length=500)
+    effect_if_rejected: str | None = Field(default=None, max_length=500)
 
 
 class AuditCoverage(BaseModel):
@@ -290,6 +326,9 @@ class ReviewPlan(BaseModel):
     degraded: bool = False
     degradation_reason: str | None = None
     coverage: AuditCoverage = Field(default_factory=AuditCoverage)
+    # The native preview this plan was audited against.  Finalization refuses
+    # edits when the host hands us a different preview.
+    preview_fingerprint: str | None = Field(default=None, max_length=128)
     # Kept for compatibility with the 0.1 topic planner. Maintained adapters use
     # audit_topics/review_questions instead.
     review_topics: list[ReviewTopic] = Field(default_factory=list, max_length=3)
@@ -324,7 +363,7 @@ class ReviewedFactsAppendix(BaseModel):
 
 
 class PreviewFinalization(BaseModel):
-    """The original native preview and its append-only finalized form."""
+    """The native preview plus safe, source-backed edits and appendix."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -332,6 +371,23 @@ class PreviewFinalization(BaseModel):
     final_summary: str
     appendix: ReviewedFactsAppendix
     changed: bool
+    edits: list[PreviewEdit] = Field(default_factory=list, max_length=20)
+    diagnostics: list[str] = Field(default_factory=list, max_length=10)
+
+
+class PreviewEdit(BaseModel):
+    """One exact, deterministic edit applied to the native preview."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1, max_length=120)
+    operation: Literal["replace"] = "replace"
+    target: str = Field(min_length=1, max_length=500)
+    replacement: str = Field(min_length=1, max_length=500)
+    topic_id: str | None = None
+    finding_id: str | None = None
+    status: Literal["applied", "skipped"]
+    reason: str = Field(min_length=1, max_length=500)
 
 
 class InspectionResult(BaseModel):

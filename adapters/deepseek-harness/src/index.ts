@@ -1,9 +1,8 @@
 import type { Context } from "@deepseek-ai/cordis";
 import { BasicCompactionEngine } from "@deepseek-ai/dsh-compaction-basic";
 import type { Agent } from "@deepseek-ai/dsh-agent";
-import type { ReviewPlan, ReviewQuestion } from "./types.js";
+import type { PreviewFinalization, ReviewPlan, ReviewQuestion } from "./types.js";
 import { GuardianBridge, normalizeDeepSeekMessages, preferredLanguage } from "./bridge.js";
-import { appendReviewedFacts } from "./reviewed-facts.js";
 
 export const name = "context-guardian-deepseek-harness";
 const MAX_REVIEW_QUESTIONS = 3;
@@ -59,12 +58,16 @@ function configuredReviewBudget(): number {
 export function answersForNoUi(plan: ReviewPlan): Array<{
   question_id: string;
   topic_id: string;
-  action: "keep" | "drop";
+  action: "keep" | "drop" | "correct" | "keep_preview" | "add";
 }> {
   return plan.review_questions.map((question) => ({
     question_id: question.id,
     topic_id: question.topic_id,
-    action: question.recommendation,
+    action: question.operation === "replace"
+      ? "keep_preview"
+      : question.operation === "add"
+        ? "drop"
+        : question.recommendation,
   }));
 }
 
@@ -73,11 +76,11 @@ export function reviewQuestionsForUi(plan: ReviewPlan) {
     id: question.id,
     header: question.title,
     question: question.question,
-    detail: `${plan.overview}\n\n${question.context}\n\n${question.why_it_matters}`
+    detail: `${plan.overview}\n\n${question.question}\n\n${question.context}\n\nWhy it matters: ${question.why_it_matters}`
       + (question.evidence_snippets?.length
         ? `\n\nSource evidence (verbatim, for verification):\n${question.evidence_snippets.join("\n")}`
         : "")
-      + `\n\n${question.options.map((option) => `${option.label}: ${option.description}`).join("\n")}`,
+      + `\n\nThe full original conversation is not preserved.\n\n${question.options.map((option) => `${option.label}: ${option.description}`).join("\n")}`,
     options: question.options.map((option) => ({
       label: option.label,
       description: option.description,
@@ -90,7 +93,7 @@ export async function answerReviewQuestions(
   agent: Agent,
   plan: ReviewPlan,
   signal: AbortSignal,
-): Promise<Array<{ question_id: string; topic_id: string; action: "keep" | "drop" }>> {
+): Promise<Array<{ question_id: string; topic_id: string; action: "keep" | "drop" | "correct" | "keep_preview" | "add" }>> {
   if (plan.review_questions.length === 0) return [];
   const explicitNoUi = process.env.CONTEXT_GUARDIAN_NO_UI === "1";
   // `Context.get()` deliberately bypasses a plugin's injected dependency map.
@@ -162,6 +165,35 @@ function textFromSummary(result: NativeSummarizeResult): string {
     .trim();
 }
 
+export function applyFinalizationToSummary(
+  summary: readonly { type?: string; text?: string; [key: string]: unknown }[],
+  finalization: PreviewFinalization,
+): { type?: string; text?: string; [key: string]: unknown }[] {
+  const blocks = summary.map((block) => ({ ...block }));
+  for (const edit of finalization.edits.filter((item) => item.status === "applied")) {
+    const candidates = blocks
+      .map((block, index) => ({ block, index }))
+      .filter(({ block }) => block.type === "text" && typeof block.text === "string" && block.text.includes(edit.target));
+    // Never apply an edit that spans blocks or has an ambiguous host match.
+    if (candidates.length !== 1) continue;
+    candidates[0].block.text = candidates[0].block.text!.replace(edit.target, edit.replacement);
+  }
+  if (finalization.appendix.text) {
+    const alreadyPresent = blocks.some(
+      (block) => typeof block.text === "string" && block.text.includes(finalization.appendix.text),
+    );
+    if (!alreadyPresent) {
+      const lastText = [...blocks].reverse().find((block) => block.type === "text");
+      if (lastText && typeof lastText.text === "string") {
+        lastText.text = `${lastText.text}\n\n${finalization.appendix.text}`;
+      } else {
+        blocks.push({ type: "text", text: finalization.appendix.text });
+      }
+    }
+  }
+  return blocks;
+}
+
 /**
  * Decorates the native DeepSeek Harness compactor. The native engine owns the
  * single transaction; this override only performs an uncommitted preview,
@@ -217,28 +249,37 @@ export class ContextGuardianCompactionEngine extends BasicCompactionEngine {
       this.ctx.logger.warn(uiMessageWithError(uiLanguage, "reviewCancelled", error));
       return preview;
     }
-    let appendix;
+    let finalization: PreviewFinalization;
     try {
-      appendix = await bridge.buildReviewedFacts(this.ctx, agent, plan, answers, messages, operationSignal);
+      finalization = await bridge.finalizePreview(
+        this.ctx,
+        agent,
+        plan,
+        answers,
+        textFromSummary(preview),
+        messages,
+        operationSignal,
+      );
     } catch (error) {
       this.ctx.logger.warn(uiMessageWithError(uiLanguage, "factsUnavailable", error));
       return preview;
     }
-    if (!appendix.text) {
+    if (!finalization.changed) {
       debug(this.ctx, "native_compaction_calls=1 reviewed_facts_auto=0 reviewed_facts_human=0 reviewed_facts_total=0 preview_changed=false");
       return preview;
     }
-    const summary = [
-      ...(preview.summary as readonly { type?: string; text?: string }[]),
-      { type: "text", text: appendix.text },
-    ];
+    if (finalization.diagnostics?.length) this.ctx.logger.warn(finalization.diagnostics.join("\n"));
+    const summary = applyFinalizationToSummary(
+      preview.summary as unknown as readonly { type?: string; text?: string; [key: string]: unknown }[],
+      finalization,
+    );
     debug(
       this.ctx,
-      `native_compaction_calls=1 reviewed_facts_auto=${String(appendix.facts.filter((fact) => fact.origin === "auto_correction").length)} `
-        + `reviewed_facts_human=${String(appendix.facts.filter((fact) => fact.origin === "human_keep").length)} `
-        + `reviewed_facts_total=${String(appendix.facts.length)} preview_changed=true`,
+      `native_compaction_calls=1 reviewed_facts_auto=${String(finalization.appendix.facts.filter((fact) => fact.origin === "auto_correction").length)} `
+        + `reviewed_facts_human=${String(finalization.appendix.facts.filter((fact) => fact.origin === "human_keep").length)} `
+        + `reviewed_facts_total=${String(finalization.appendix.facts.length)} edits=${String(finalization.edits.length)} preview_changed=true`,
     );
-    return { ...preview, summary } as NativeSummarizeResult;
+    return { ...preview, summary } as unknown as NativeSummarizeResult;
   }
 }
 

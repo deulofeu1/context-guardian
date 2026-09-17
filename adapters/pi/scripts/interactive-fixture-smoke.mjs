@@ -23,6 +23,12 @@ const environment = { ...process.env };
 if (!environment.CONTEXT_GUARDIAN_PYTHON && python) {
   environment.CONTEXT_GUARDIAN_PYTHON = python;
 }
+if (!environment.CONTEXT_GUARDIAN_PYTHONPATH) {
+  // The repository fixture may run against a user's venv that still contains
+  // an older non-editable Core install. Put this checkout first so the real UI
+  // smoke test exercises the exact source under test.
+  environment.CONTEXT_GUARDIAN_PYTHONPATH = repositoryRoot;
+}
 // Pi keeps roughly 20k recent tokens outside a compaction. The fixture must
 // exceed that boundary so `/compact` exercises the real native path instead
 // of returning "Nothing to compact (session too small)".
@@ -40,10 +46,11 @@ const entries = await writeSessionFixture(
 
 console.log(`Created ${entries.filter((entry) => entry.type === "message").length} messages.`);
 console.log("Pi will open with the pre-seeded Context Guardian fixture.");
-console.log("Run /compact and answer at most three topic-level Keep/Drop prompts.");
+console.log("Run /compact and answer at most three topic-level questions: Apply correction/Keep current summary or Keep/Drop.");
 console.log("Expected automatic preservation: goal, API constraint, PostgreSQL decision, SQLite failure, and auth.py TODO.");
 console.log("Expected: exactly one native compaction call; reviewed facts are appended to that Preview.");
 console.log("Expected: commands, logs, paths, hashes, and resolved temporary errors stay out of the UI.");
+console.log("Expected: the unresolved native-popup verification status appears as one before/after correction question when the native Preview claims completion.");
 console.log("The npm fundamentals side discussion may appear as one bounded question.");
 console.log("Then ask: What is the final database, why was SQLite rejected, and what is the auth.py status?");
 console.log("Exit Pi with /quit when finished.");

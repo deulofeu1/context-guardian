@@ -67,6 +67,12 @@ export interface AuditFinding {
   confidence: number;
   source_message_ids: string[];
   evidence_snippets: string[];
+  task_relation?: "primary" | "related" | "background";
+  operation?: "add" | "replace" | "keep_preview";
+  requires_user_confirmation?: boolean;
+  current_summary_text?: string | null;
+  proposed_text?: string | null;
+  effect_if_rejected?: string | null;
 }
 
 export interface AuditTopic {
@@ -79,13 +85,18 @@ export interface AuditTopic {
   relevance_to_main_goal: number;
   requires_user_preference: boolean;
   disposition: "auto_correct" | "accept_preview" | "ask_user";
-  recommended_action: "keep" | "drop" | "correct" | "accept_preview";
+  recommended_action: "keep" | "drop" | "correct" | "accept_preview" | "add" | "keep_preview";
   suggested_correction?: string | null;
   evidence_snippets?: string[];
+  task_relation?: "primary" | "related" | "background";
+  operation?: "add" | "replace" | "keep_preview";
+  current_summary_text?: string | null;
+  proposed_text?: string | null;
+  effect_if_rejected?: string | null;
 }
 
 export interface ReviewOption {
-  id: "keep" | "drop";
+  id: "keep" | "drop" | "correct" | "keep_preview" | "add";
   label: string;
   description: string;
 }
@@ -97,9 +108,14 @@ export interface ReviewQuestion {
   question: string;
   context: string;
   why_it_matters: string;
-  recommendation: "keep" | "drop";
+  recommendation: "keep" | "drop" | "correct" | "keep_preview" | "add";
   options: ReviewOption[];
   evidence_snippets?: string[];
+  task_relation?: "primary" | "related" | "background";
+  operation?: "add" | "replace" | "keep_preview";
+  current_summary_text?: string | null;
+  proposed_text?: string | null;
+  effect_if_rejected?: string | null;
 }
 
 export interface AuditCoverage {
@@ -125,6 +141,7 @@ export interface ReviewPlan {
   degraded?: boolean;
   degradation_reason?: string | null;
   coverage?: AuditCoverage;
+  preview_fingerprint?: string | null;
 }
 
 export interface ReviewedFact {
@@ -140,6 +157,26 @@ export interface ReviewedFactsAppendix {
   language: "zh-CN" | "en";
   facts: ReviewedFact[];
   text: string;
+}
+
+export interface PreviewEdit {
+  id: string;
+  operation: "replace";
+  target: string;
+  replacement: string;
+  topic_id?: string | null;
+  finding_id?: string | null;
+  status: "applied" | "skipped";
+  reason: string;
+}
+
+export interface PreviewFinalization {
+  original_preview: string;
+  final_summary: string;
+  appendix: ReviewedFactsAppendix;
+  changed: boolean;
+  edits: PreviewEdit[];
+  diagnostics: string[];
 }
 
 export interface Guidance {

@@ -42,7 +42,9 @@ def build_revision_guidance(
 
     ``answers`` accepts ``question_id`` or ``topic_id`` plus ``action``. Unknown
     ids are ignored by design. Maintained 0.3.x adapters use ``build_reviewed_facts``
-    and an append-only finalization instead.
+    and a safe, exact preview finalization instead. Corrections replace only
+    the exact native-preview sentence they target; unrelated native content is
+    preserved byte-for-byte.
     """
 
     answer_map: dict[str, str] = {}

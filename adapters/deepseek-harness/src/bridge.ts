@@ -12,6 +12,7 @@ import type {
   ProtocolFrame,
   ReviewPlan,
   ReviewedFactsAppendix,
+  PreviewFinalization,
   MessageProvenance,
 } from "./types.js";
 
@@ -206,10 +207,28 @@ export class GuardianBridge {
     return result as ReviewedFactsAppendix;
   }
 
+  async finalizePreview(
+    ctx: Context,
+    agent: Agent,
+    reviewPlan: ReviewPlan,
+    answers: Array<{ question_id: string; topic_id: string; action: "keep" | "drop" | "correct" | "keep_preview" | "add" }>,
+    preview: string,
+    messages: GuardianMessage[],
+    signal: AbortSignal,
+  ): Promise<PreviewFinalization> {
+    const result = await this.request(ctx, agent, "finalize_preview", {
+      preview,
+      review_plan: reviewPlan,
+      answers,
+      messages,
+    }, signal);
+    return result as PreviewFinalization;
+  }
+
   private async request(
     ctx: Context,
     agent: Agent,
-    operation: "inspect" | "guidance" | "audit_preview" | "revision_guidance" | "build_reviewed_facts",
+    operation: "inspect" | "guidance" | "audit_preview" | "revision_guidance" | "build_reviewed_facts" | "finalize_preview",
     body: Record<string, unknown>,
     signal: AbortSignal,
   ): Promise<unknown> {
