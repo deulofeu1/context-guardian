@@ -1,6 +1,6 @@
 {
   "name": "context-guardian-deepseek-harness",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Human review before DeepSeek Harness context compaction",
   "type": "module",
   "main": "lib/index.js",

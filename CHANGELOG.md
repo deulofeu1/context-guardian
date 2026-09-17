@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1 - 2026-09-17 (Issue #21 long preview target safety)
+
+- Fixed long contradictory Markdown bullets crashing `audit_preview` through the 500-character UI field limit.
+- Split preview bullets into complete sentence targets, stored exact replacement targets separately, and bounded them independently.
+- Preserved native previews with a visible diagnostic when no safe exact target can be represented.
+- Added local, provider-fallback, JSONL bridge, and finalization regression coverage.
+
 ## 0.4.0 - 2026-09-17 (Issue #19 bounded summary corrections)
 
 - Separated factual audit types from the independent decision to ask a human,

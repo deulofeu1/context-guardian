@@ -7,6 +7,9 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+MAX_DISPLAY_TEXT_CHARS = 500
+MAX_EXACT_PREVIEW_TARGET_CHARS = 16_000
+
 
 class CandidateCategory(StrEnum):
     GOAL = "goal"
@@ -228,7 +231,13 @@ class AuditFinding(BaseModel):
     task_relation: Literal["primary", "related", "background"] = "related"
     operation: Literal["add", "replace", "keep_preview"] = "add"
     requires_user_confirmation: bool = False
-    current_summary_text: str | None = Field(default=None, max_length=500)
+    # Bounded UI excerpt. The exact replacement target is carried separately
+    # so a long native-preview bullet cannot violate the display limit.
+    current_summary_text: str | None = Field(default=None, max_length=MAX_DISPLAY_TEXT_CHARS)
+    current_summary_target: str | None = Field(
+        default=None,
+        max_length=MAX_EXACT_PREVIEW_TARGET_CHARS,
+    )
     proposed_text: str | None = Field(default=None, max_length=500)
     effect_if_rejected: str | None = Field(default=None, max_length=500)
 
@@ -254,7 +263,11 @@ class AuditTopic(BaseModel):
     evidence_snippets: list[str] = Field(default_factory=list, max_length=3)
     task_relation: Literal["primary", "related", "background"] = "related"
     operation: Literal["add", "replace", "keep_preview"] = "add"
-    current_summary_text: str | None = Field(default=None, max_length=500)
+    current_summary_text: str | None = Field(default=None, max_length=MAX_DISPLAY_TEXT_CHARS)
+    current_summary_target: str | None = Field(
+        default=None,
+        max_length=MAX_EXACT_PREVIEW_TARGET_CHARS,
+    )
     proposed_text: str | None = Field(default=None, max_length=500)
     effect_if_rejected: str | None = Field(default=None, max_length=500)
 
@@ -284,7 +297,11 @@ class ReviewQuestion(BaseModel):
     evidence_snippets: list[str] = Field(default_factory=list, max_length=3)
     task_relation: Literal["primary", "related", "background"] = "related"
     operation: Literal["add", "replace", "keep_preview"] = "add"
-    current_summary_text: str | None = Field(default=None, max_length=500)
+    current_summary_text: str | None = Field(default=None, max_length=MAX_DISPLAY_TEXT_CHARS)
+    current_summary_target: str | None = Field(
+        default=None,
+        max_length=MAX_EXACT_PREVIEW_TARGET_CHARS,
+    )
     proposed_text: str | None = Field(default=None, max_length=500)
     effect_if_rejected: str | None = Field(default=None, max_length=500)
 
@@ -382,7 +399,7 @@ class PreviewEdit(BaseModel):
 
     id: str = Field(min_length=1, max_length=120)
     operation: Literal["replace"] = "replace"
-    target: str = Field(min_length=1, max_length=500)
+    target: str = Field(min_length=1, max_length=MAX_EXACT_PREVIEW_TARGET_CHARS)
     replacement: str = Field(min_length=1, max_length=500)
     topic_id: str | None = None
     finding_id: str | None = None
